@@ -1,0 +1,105 @@
+# repository-wide pedantix configuration
+
+# Built-in presets provide base values ("nixos-module", "nixpkgs-package";
+# This flake provides a few presets with defaults for nixos modules and
+# packages. See presets/*.toml. Explicit settings below win over the preset.
+# preset = "nixos-module"
+
+# Base formatter: "nixfmt" (default), "alejandra", "nixpkgs-fmt", or "off"
+formatter = "nixfmt"
+# Alternatively any stdin -> stdout command; overrides `formatter`.
+# Because this executes an arbitrary program, it is only honored from
+# configs you name explicitly (--config, --config-toml, --set) and the
+# global XDG config; in an auto-discovered config it requires running
+# with --allow-formatter-command.
+# formatter-command = ["nixfmt", "--width=100"]
+
+# Run the base formatter before sorting, and again after sorting to
+# normalize layout. Both default to true.
+# format-before-sort = true
+# format-after-sort = true
+
+# Where inherits should be sorted: "first" (default), "sorted", or "last"
+# sorted sorts them alphabetically, else they are at the very top/bottom
+# inherit-placement = "front"
+
+# Exact number of blank lines between the bindings of a file's top-level
+# attribute set. Unset: keep the blank lines as-is -- reordered set will
+# by default drop all spacing; set this (or [attrs] blank-lines) to restore
+# top-level-blank-lines = 1
+
+# How deep the spacing reaches: 1 (the default) is only the file's
+# outermost set, 2 also covers the sets its bindings define and so ons.
+# In flake.nix files, `inputs` and `outputs` always count as top-level sets.
+# top-level-blank-lines-depth = 1
+
+# Which lines should receive spacing: "multiline" (default), "all"
+# "multiline": spacing for bindings whose text spans several lines,
+# consecutive single-line are kept together
+# "all": apply spacing to all bindings.
+# top-level-blank-lines-mode = "multiline"
+
+# top-level-blank-lines vs. [attrs] blank-lines:
+#   top-level-blank-lines does NOT descend into function-call sets, and
+#     treats a flake.nix `inputs`/`outputs` body as its own top-level set.
+#   [attrs] blank-lines applies to every attrset the attrs rules match, at
+#     any nesting depth, including sets in function call,
+#     and can be targeted per path via [[overrides]].
+
+# Every construct below ([args], [attrs], [lets], [inherits], [lists])
+# accepts the same three keys:
+#   sort  = true/false    -- whether to reorder at all
+#   first = [...]         -- names that always come first, in the given order
+#   last  = [...]         -- names that always come last, in the given order
+# [attrs] additionally accepts:
+#   merge = true/false    -- merge bindings sharing their first attrpath
+#                            component into one nested set (default false):
+#                         `a.b = 1; a.c = 2;` -> `a = { b = 1; c = 2; };`
+#   blank-lines = N       -- number of blank lines between the set's bindings
+#   blank-lines-mode      -- "multiline" (default) / "all" / "off"; "off"
+#                            suppresses spacing entirely for matched paths.
+#   blank-lines-depth = N -- see top-level-blank-line-depth; wrappers like
+#                            functions and lets do not count as levels).
+
+# sorting in arguments
+[args]
+first = ["self", "lib", "config", "pkgs"]
+# "<defaulted>" stands for all args with a default value, e.g. `name ? value`
+last = ["<defaulted>", "..."]
+
+# Sorting in attribute sets
+[attrs]
+first = ["imports", "enable", "package"]
+
+# Sorting inside let ... in blocks
+[lets]
+sort = true
+
+# Sorting of inherit arguments
+[inherits]
+sort = true
+
+# List elements can be sorted too, but list order can be relevant
+# this is ideally used per path:
+# [lists]
+# sort = true
+
+# Per-path overrides. `path` is a glob over dot-separated attribute paths:
+# `*` matches exactly one component, `**` any number (including zero).
+# Each override may set the partial rules (sort/first/last) of any
+# construct: attrs, args, lets, inherits, lists.
+# [[overrides]]
+# path = "**.programs.git.settings.alias"
+# attrs.sort = false
+#
+# [[overrides]]
+# path = "**.systemd.services.*"
+# attrs.first = ["description", "wantedBy"]
+#
+# [[overrides]]
+# path = "**.environment.systemPackages"
+# lists.sort = true
+#
+# [[overrides]]
+# path = "flake-file.inputs"
+# attrs.blank-lines = 1

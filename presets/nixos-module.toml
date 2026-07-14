@@ -1,0 +1,7 @@
+[args]
+first = ["config", "lib", "pkgs", "options", "modulesPath", "utils"]
+last = ["<defaulted>", "..."]
+
+[attrs]
+first = ["imports", "options", "config", "enable", "package"]
+last = ["meta"]

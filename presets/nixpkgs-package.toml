@@ -1,0 +1,76 @@
+[args]
+first = ["lib", "stdenv", "fetchurl", "fetchFromGitHub", "fetchFromGitLab"]
+last = ["<defaulted>", "..."]
+
+[attrs]
+first = [
+  "pname",
+  "version",
+  "src",
+  "outputs",
+  "patches",
+  "postPatch",
+  "strictDeps",
+  "nativeBuildInputs",
+  "buildInputs",
+  "propagatedBuildInputs",
+  "cargoLock",
+  "cargoHash",
+  "vendorHash",
+  "npmDepsHash",
+  "configureFlags",
+  "cmakeFlags",
+  "mesonFlags",
+  "makeFlags",
+  "buildFlags",
+  "env",
+  "preConfigure",
+  "postConfigure",
+  "preBuild",
+  "buildPhase",
+  "postBuild",
+  "doCheck",
+  "nativeCheckInputs",
+  "checkInputs",
+  "checkFlags",
+  "preCheck",
+  "checkPhase",
+  "postCheck",
+  "preInstall",
+  "installPhase",
+  "postInstall",
+  "doInstallCheck",
+  "nativeInstallCheckInputs",
+  "installCheckPhase",
+  "preFixup",
+  "postFixup",
+]
+last = ["passthru", "meta"]
+
+[[overrides]]
+path = "**.src"
+attrs.first = [
+  "url",
+  "owner",
+  "repo",
+  "rev",
+  "tag",
+  "hash",
+  "sha256",
+  "fetchSubmodules",
+]
+
+[[overrides]]
+path = "**.meta"
+attrs.first = [
+  "description",
+  "longDescription",
+  "homepage",
+  "changelog",
+  "license",
+  "sourceProvenance",
+  "maintainers",
+  "platforms",
+  "badPlatforms",
+  "mainProgram",
+]
