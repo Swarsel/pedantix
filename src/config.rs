@@ -276,6 +276,7 @@ const PRESETS: &[(&str, &str)] = &[
         "nixpkgs-package",
         include_str!("../presets/nixpkgs-package.toml"),
     ),
+    ("alphabetical", include_str!("../presets/alphabetical.toml")),
 ];
 
 fn expand_preset(mut table: toml::Table) -> Result<toml::Table> {

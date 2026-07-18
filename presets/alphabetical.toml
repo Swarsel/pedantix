@@ -1,0 +1,13 @@
+# Preset that sorts every expression (except lists) alphabetically.
+
+[lets]
+sort = true
+
+[attrs]
+sort = true
+
+[args]
+sort = true
+
+[inherits]
+sort = true
