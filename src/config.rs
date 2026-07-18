@@ -11,9 +11,26 @@ fn default_blank_lines_depth() -> usize {
     1
 }
 
+#[cfg(feature = "docs")]
+fn default_formatter_doc() -> &'static str {
+    "nixfmt"
+}
+
+#[cfg(feature = "docs")]
+fn default_blank_lines_mode_doc() -> &'static str {
+    "multiline"
+}
+
+#[cfg(feature = "docs")]
+fn default_inherit_placement_doc() -> &'static str {
+    "front"
+}
+
 pub const DEFAULTED_TOKEN: &str = "<defaulted>";
 
+/// Base formatter run before and after sorting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, clap::ValueEnum)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 #[clap(rename_all = "kebab-case")]
 pub enum FormatterChoice {
@@ -36,39 +53,65 @@ impl FormatterChoice {
     }
 }
 
+/// Which bindings receive blank-line spacing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum BlankLinesMode {
+    /// Space bindings whose text spans several lines; keep consecutive
+    /// single-line bindings together.
     #[default]
     Multiline,
+    /// Apply spacing to all bindings.
     All,
+    /// Suppress spacing entirely.
     Off,
 }
 
+/// Where `inherit` statements land relative to ordinary bindings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum InheritPlacement {
+    /// Pin `inherit lines to the top of the set.
     #[default]
     Front,
+    /// Pin `inherit lines to the bottom of the set.
     Last,
+    /// Sort `inherit lines alphabetically among the bindings.
     Sorted,
 }
 
+/// Rules for one sortable construct (`args`, `attrs`, `lets`, `inherits`,
+/// `lists`). The `merge` and `blank-lines*` keys only apply to `attrs`.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SortRules {
+    /// Whether to reorder this construct at all.
     #[serde(default = "default_true")]
     pub sort: bool,
+    /// Names pinned to the front, in the given order. The sentinel
+    /// `"<defaulted>"` stands for all arguments with a default value
+    /// (`name ? value`); `"..."` is the ellipsis.
     #[serde(default)]
     pub first: Vec<String>,
+    /// Names pinned to the end, in the given order.
     #[serde(default)]
     pub last: Vec<String>,
+    /// (attrs only) Merge bindings sharing their first attrpath component into
+    /// one nested set: `a.b = 1; a.c = 2;` becomes `a = { b = 1; c = 2; };`.
     #[serde(default)]
     pub merge: bool,
+    /// (attrs only) Number of blank lines between the set's bindings. Unset
+    /// keeps the existing spacing.
     #[serde(default)]
     pub blank_lines: Option<usize>,
+    /// (attrs only) Which bindings receive the blank-line spacing.
     #[serde(default)]
     pub blank_lines_mode: Option<BlankLinesMode>,
+    /// (attrs only) How deep the spacing reaches; wrappers such as functions
+    /// and `let`s do not count as levels.
     #[serde(default = "default_blank_lines_depth")]
     pub blank_lines_depth: usize,
 }
@@ -86,7 +129,10 @@ fn rules_off() -> SortRules {
     }
 }
 
+/// Partial version of [`SortRules`] where every key is optional, used inside
+/// `[[overrides]]` so an override only touches the keys it names.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct PartialRules {
     pub sort: Option<bool>,
@@ -124,14 +170,25 @@ impl PartialRules {
     }
 }
 
+/// A per-path override. `path` is a glob over dot-separated attribute paths
+/// (`*` matches one component, `**` any number); the remaining keys set
+/// partial rules for the matched paths.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Override {
+    /// Glob over dot-separated attribute paths. `*` matches exactly one
+    /// component, `**` any number (including zero).
     pub path: String,
+    /// Attribute-set rules to apply to matched paths.
     pub attrs: Option<PartialRules>,
+    /// Function-argument rules to apply to matched paths.
     pub args: Option<PartialRules>,
+    /// `let`-binding rules to apply to matched paths.
     pub lets: Option<PartialRules>,
+    /// `inherit` rules to apply to matched paths.
     pub inherits: Option<PartialRules>,
+    /// List-element rules to apply to matched paths.
     pub lists: Option<PartialRules>,
 }
 
@@ -144,35 +201,63 @@ pub enum RuleKind {
     Lists,
 }
 
+/// A complete pedantix configuration, matching the structure of
+/// `pedantix.toml`.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Config {
+    /// Base formatter run before and after sorting.
     #[serde(default)]
+    #[cfg_attr(feature = "docs", schemars(default = "default_formatter_doc"))]
     pub formatter: FormatterChoice,
+    /// Arbitrary `stdin -> stdout` command; overrides `formatter`. Because it
+    /// runs an external program, it is only honored from configs named
+    /// explicitly (`--config`, `--config-toml`, `--set`, the global XDG
+    /// config); an auto-discovered config requires `--allow-formatter-command`.
     #[serde(default)]
     pub formatter_command: Option<Vec<String>>,
+    /// Run the base formatter before sorting.
     #[serde(default = "default_true")]
     pub format_before_sort: bool,
+    /// Run the base formatter again after sorting.
     #[serde(default = "default_true")]
     pub format_after_sort: bool,
+    /// Exact number of blank lines between the bindings of the file's
+    /// outermost attribute set. Unset keeps existing blank lines as-is.
     #[serde(default)]
     pub top_level_blank_lines: Option<usize>,
+    /// Which top-level bindings receive the blank-line spacing.
     #[serde(default)]
+    #[cfg_attr(feature = "docs", schemars(default = "default_blank_lines_mode_doc"))]
     pub top_level_blank_lines_mode: BlankLinesMode,
+    /// How deep the top-level spacing reaches: 1 is only the outermost set, 2
+    /// also covers the sets its bindings define, and so on. In `flake.nix`,
+    /// `inputs` and `outputs` always count as top-level sets.
     #[serde(default = "default_blank_lines_depth")]
     pub top_level_blank_lines_depth: usize,
+    /// Where `inherit` statements land relative to ordinary bindings.
     #[serde(default)]
+    #[cfg_attr(feature = "docs", schemars(default = "default_inherit_placement_doc"))]
     pub inherit_placement: InheritPlacement,
+    /// Rules for function arguments (`{ lib, config, pkgs, ... }`).
     #[serde(default)]
     pub args: SortRules,
+    /// Rules for attribute-set bindings.
     #[serde(default)]
     pub attrs: SortRules,
+    /// Rules for `let ... in` bindings (off by default).
     #[serde(default = "rules_off")]
     pub lets: SortRules,
+    /// Rules for the names inside an `inherit` (off by default).
     #[serde(default = "rules_off")]
     pub inherits: SortRules,
+    /// Rules for list elements (off by default, since list order is often
+    /// significant).
     #[serde(default = "rules_off")]
     pub lists: SortRules,
+    /// Per-path overrides that change the rules above for specific attribute
+    /// paths.
     #[serde(default)]
     pub overrides: Vec<Override>,
 }

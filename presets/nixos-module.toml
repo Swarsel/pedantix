@@ -1,3 +1,5 @@
+# Preset for for NixOS / Home Manager modules.
+
 [args]
 first = ["config", "lib", "pkgs", "options", "modulesPath", "utils"]
 last = ["<defaulted>", "..."]

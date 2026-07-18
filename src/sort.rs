@@ -28,9 +28,6 @@ pub(crate) fn text<'a>(node: Node, src: &'a str) -> &'a str {
 
 fn rewrite(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
     match node.kind() {
-        // Binding sets are sorted from their container, because comments
-        // before the first / after the last binding are siblings of the
-        // binding_set node, not children.
         "attrset_expression" | "rec_attrset_expression" | "let_attrset_expression" => {
             sort_container(node, src, path, cfg, RuleKind::Attrs)
         }
@@ -581,8 +578,6 @@ fn sort_inherited_attrs(
     }
     let mut cursor = node.walk();
     let children: Vec<Node> = node.children(&mut cursor).collect();
-    // Comments inside an inherit name list are rare and position-sensitive;
-    // leave such lists untouched rather than risk mangling them.
     if children.iter().any(|c| c.kind() == "comment") {
         return splice_children(node, src, path, cfg);
     }
@@ -795,8 +790,6 @@ mod tests {
             sorted("{\n  b,\n  x ? 1,\n  lib,\n  a\n}:\na\n", &config),
             "{\n  lib,\n  x ? 1,\n  a,\n  b\n}:\na\n"
         );
-        // In `last`, defaulted args group together (sorted by name), an
-        // explicit `first` entry beats the token, and "..." stays behind.
         let config =
             cfg("[args]\nfirst = [\"lib\", \"nixosConfig\"]\nlast = [\"<defaulted>\", \"...\"]\n");
         assert_eq!(

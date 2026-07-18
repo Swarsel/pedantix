@@ -1,5 +1,4 @@
-//! Tests needing a base formatter are skipped when it is not on PATH (the
-//! nix build always provides nixfmt).
+//! Tests needing a base formatter are skipped when it is not on PATH
 
 use pedantix::config::{BlankLinesMode, Config, FormatterChoice};
 use pedantix::pipeline::{process, process_file};
@@ -126,8 +125,6 @@ fn top_level_spacing_through_the_full_pipeline() {
         eprintln!("skipping: nixfmt not on PATH");
         return;
     }
-    // n = 2 exercises the nixfmt round trip: the before-pass collapses the
-    // blank lines again, and the spacing pass must re-establish them.
     let src = "{\n  b = 2;\n\n\n  a = 1;\n  c = { y = 2; x = 1; };\n}\n";
     for n in [0, 1, 2] {
         let cfg = Config {

@@ -99,8 +99,6 @@ Point is preserved on a best-effort basis via
                                    out-buffer nil nil
                                    source nil nil)))))
          (when changed
-           ;; A function returning the buffer is the calling convention
-           ;; supported from Emacs 27.1 through current development versions.
            (replace-region-contents (point-min) (point-max)
                                     (lambda () out-buffer)))
          (message (if changed "pedantix: formatted" "pedantix: already formatted"))))
@@ -124,9 +122,6 @@ column the region starts at."
      (lambda (out-buffer)
        (let ((formatted
               (with-current-buffer out-buffer
-                ;; pedantix formats the expression as a whole file: column 0
-                ;; and a trailing newline.  Shift all but the first line to
-                ;; the region's start column and mirror the original ending.
                 (when (> base-column 0)
                   (goto-char (point-min))
                   (forward-line 1)

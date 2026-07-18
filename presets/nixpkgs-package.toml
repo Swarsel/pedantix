@@ -1,3 +1,5 @@
+# Preset for nixpkgs-style package derivations.
+
 [args]
 first = ["lib", "stdenv", "fetchurl", "fetchFromGitHub", "fetchFromGitLab"]
 last = ["<defaulted>", "..."]

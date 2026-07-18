@@ -1,4 +1,5 @@
 pub mod base;
+pub mod cli;
 pub mod config;
 pub mod merge;
 pub mod pipeline;

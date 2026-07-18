@@ -21,14 +21,14 @@ in
     package = lib.mkOption {
       default = localFlake.packages.${pkgs.stdenv.hostPlatform.system}.pedantix-wrapped;
       defaultText = lib.literalExpression "pedantix.packages.\${system}.pedantix-wrapped";
-      description = "The pedantix package to install. The default wrapper ships nixfmt, alejandra and nixpkgs-fmt on PATH; use the unwrapped `pedantix` package if you provide the base formatter yourself.";
+      description = "The pedantix package to install. The default wrapper ships `nixfmt`, `alejandra` and `nixpkgs-fmt` on `PATH`; use the unwrapped `pedantix` package if you provide the base formatter yourself.";
       type = lib.types.package;
     };
     settings = lib.mkOption {
       inherit (tomlFormat) type;
       default = { };
       description = ''
-        Global fallback configuration, using the same structure as pedantix.toml.
+        Global fallback configuration, using the same structure as {file}`pedantix.toml`.
 
         Written to {file}`$XDG_CONFIG_HOME/pedantix/pedantix.toml`.
       '';

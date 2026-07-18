@@ -29,7 +29,6 @@ pub fn run_base_formatter(cfg: &Config, input: &str) -> Result<String> {
     let output = child
         .wait_with_output()
         .with_context(|| format!("base formatter `{}` failed to run", argv[0]))?;
-    // A broken-pipe write error is subsumed by the formatter's exit status.
     let _ = writer.join().expect("stdin writer thread panicked");
 
     if !output.status.success() {

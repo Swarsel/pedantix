@@ -3,14 +3,6 @@ use crate::sort::{binding_components, collect_items, container_region, is_multil
 use anyhow::{Result, bail};
 use tree_sitter::Node;
 
-// Runs after the final base-formatter pass: nixfmt collapses consecutive
-// blank lines, so enforcing the count any earlier would not be idempotent.
-//
-// Spacing applies to a set when its attrs rules define `blank-lines`
-// (globally or via a per-path override), or as a fallback when the set is a
-// top-level root: the file's outermost attrset, sets reachable within
-// `top-level-blank-lines-depth` binding levels, and in a flake.nix the
-// bodies of the `inputs` and `outputs` bindings.
 pub fn space_top_level(src: &str, cfg: &Config, is_flake: bool) -> Result<String> {
     if !cfg.blank_lines_may_apply() {
         return Ok(src.to_string());
@@ -47,9 +39,6 @@ struct Spacer<'a> {
     edits: Vec<(usize, usize, String)>,
 }
 
-// A spacing spec inherited from an enclosing set whose rules set
-// `blank-lines` with `blank-lines-depth` > 1; `window` is how many more
-// levels (including the receiving set) it still applies to.
 #[derive(Clone, Copy)]
 struct Inherited {
     n: usize,
@@ -57,10 +46,6 @@ struct Inherited {
     window: usize,
 }
 
-// `root` is Some(depth) while the node is (or wraps) a top-level root, and
-// `inherited` carries a rule-driven spacing window; both survive
-// function/let/with/assert/paren wrappers on the way to a body and die on
-// anything else (e.g. function calls).
 impl Spacer<'_> {
     fn walk(
         &mut self,
@@ -73,10 +58,6 @@ impl Spacer<'_> {
             "attrset_expression" | "rec_attrset_expression" | "let_attrset_expression" => {
                 self.space_container(node, path, root, inherited);
             }
-            // Bindings of a `let ... in` reach their values through this arm
-            // (attrset bindings are walked by space_container itself); the
-            // attrpath must extend `path` or per-path rules match truncated
-            // paths below the let.
             "binding" => {
                 let expr_id = node.child_by_field_name("expression").map(|b| b.id());
                 let comps = binding_components(node, self.src);

@@ -26,6 +26,7 @@ let
         ../Cargo.toml
         ../Cargo.lock
         ../src
+        ../examples
         ../presets
         ../tests
         ../example.nix

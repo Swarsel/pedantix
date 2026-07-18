@@ -28,8 +28,6 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
             cfg.attrs_may_merge(),
         )?;
     }
-    // The after-pass is skippable only when the before-pass already ran and
-    // sorting changed nothing (the text is then already base-formatted).
     let output = if cfg.format_after_sort && (changed || !cfg.format_before_sort) {
         crate::base::run_base_formatter(cfg, &sorted).context("base formatter (after sort)")?
     } else {

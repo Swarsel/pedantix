@@ -92,6 +92,12 @@
         perSystem =
           { config, pkgs, ... }:
           let
+            optionsDoc = import ./nix/options-doc.nix {
+              inherit pkgs;
+              localFlake = {
+                packages.${pkgs.stdenv.hostPlatform.system}.pedantix-wrapped = config.packages.pedantix-wrapped;
+              };
+            };
             pedantix = pkgs.callPackage ./nix/package.nix { };
             runApp = {
               meta.description = "The pedantic Nix formatter";
@@ -141,6 +147,8 @@
             packages = {
               inherit pedantix;
               default = pedantix;
+              options-doc-hm = optionsDoc.hm;
+              options-doc-treefmt = optionsDoc.treefmt;
               pedantix-wrapped = pedantix.wrapped;
             };
             pre-commit.settings.hooks = {

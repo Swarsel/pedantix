@@ -49,8 +49,6 @@ fn attrpath_comp_nodes<'a>(binding: Node<'a>) -> Option<Vec<Node<'a>>> {
     Some(comps)
 }
 
-// Heads with interpolations are dynamic attributes; two bindings sharing
-// one are an eval error, so merging them would change the file's meaning.
 fn is_static_head(node: Node) -> bool {
     match node.kind() {
         "identifier" => true,

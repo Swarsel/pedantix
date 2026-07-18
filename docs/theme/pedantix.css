@@ -1,0 +1,13 @@
+.content table {
+    width: 100%;
+    display: table;
+}
+
+.content table td:first-child {
+    white-space: nowrap;
+}
+
+.content blockquote {
+    border-inline-start: 4px solid var(--quote-border);
+    padding: 0.5rem 1rem;
+}

@@ -9,10 +9,21 @@ repository = "https://github.com/swarsel/pedantix"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+schemars = { version = "0.8", optional = true }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
 toml = "0.8"
 tree-sitter = "0.25"
 tree-sitter-nix = "0.3"
+
+[features]
+# Derive JSON Schema on the config types so examples/gen-config-docs.rs can
+# render the configuration reference. Off by default; enabled only for docs.
+docs = ["dep:schemars", "dep:serde_json"]
+
+[[example]]
+name = "gen-config-docs"
+required-features = ["docs"]
 
 [profile.release]
 lto = true
