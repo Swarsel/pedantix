@@ -55,6 +55,9 @@ formatter = "nixfmt"
 #   merge = true/false    -- merge bindings sharing their first attrpath
 #                            component into one nested set (default false):
 #                         `a.b = 1; a.c = 2;` -> `a = { b = 1; c = 2; };`
+#   flatten = true/false  -- flatten a binding whose value is an attrset
+#                            holding a single binding (default false):
+#                         `a = { b = 1; };` -> `a.b = 1;`
 #   blank-lines = N       -- number of blank lines between the set's bindings
 #   blank-lines-mode      -- "multiline" (default) / "all" / "off"; "off"
 #                            suppresses spacing entirely for matched paths.

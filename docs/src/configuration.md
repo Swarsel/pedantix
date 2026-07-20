@@ -21,7 +21,7 @@ preset = "nixos-module"
 
 ### The five construct tables share one shape
 
-`[args]`, `[attrs]`, `[lets]`, `[inherits]`, and `[lists]` all take the same **sort rules** keys. Names not listed in `first` / `last` are sorted alphabetically between them. The `merge` and `blank-lines*` keys are only meaningful under `[attrs]`.
+`[args]`, `[attrs]`, `[lets]`, `[inherits]`, and `[lists]` all take the same **sort rules** keys. Names not listed in `first` / `last` are sorted alphabetically between them. The `merge`, `flatten`, and `blank-lines*` keys are only meaningful under `[attrs]`.
 
 ```toml
 [args]
@@ -37,7 +37,7 @@ sort = true
 
 `[lets]`, `[inherits]`, and `[lists]` are **off by default**. List sorting in particular is best enabled per-path via an [override](overrides.md) rather than globally, since list order is often significant.
 
-### `merge` collapses shared attrpaths
+### `merge` shared attribute paths
 
 ```toml
 [attrs]
@@ -45,6 +45,15 @@ merge = true
 ```
 
 turns `a.b = 1; a.c = 2;` into `a = { b = 1; c = 2; };`. This does not fix broken evaluation by e.g. dynamically derived attribute set names.
+
+### `flatten` single-binding attribute sets
+
+```toml
+[attrs]
+flatten = true
+```
+
+turns `a = { b = 1; };` into `a.b = 1;`, provided `b` is the only binding in the set. This skips on `rec`, `inherit`, dynamic keys, and comments around binding.
 
 ### Top-level blank lines vs. `[attrs] blank-lines`
 

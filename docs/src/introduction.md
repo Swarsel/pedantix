@@ -15,6 +15,7 @@ Off by default:
 - ordering of let bindings
 - ordering of lists
 - merging of repeated keys (this does not fix broken evaluations)
+- flattening of attribute sets with a single entry
 - enforcing of blank lines in between attribute sets
 - ordering overrides for custom attribute paths
 

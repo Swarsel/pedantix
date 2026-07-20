@@ -83,7 +83,8 @@ pub enum InheritPlacement {
 }
 
 /// Rules for one sortable construct (`args`, `attrs`, `lets`, `inherits`,
-/// `lists`). The `merge` and `blank-lines*` keys only apply to `attrs`.
+/// `lists`). The `merge`, `flatten`, and `blank-lines*` keys only apply to
+/// `attrs`.
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -103,6 +104,11 @@ pub struct SortRules {
     /// one nested set: `a.b = 1; a.c = 2;` becomes `a = { b = 1; c = 2; };`.
     #[serde(default)]
     pub merge: bool,
+    /// (attrs only) Flatten a binding whose value is an attrset holding a
+    /// single binding into one attrpath: `a = { b = 1; };` becomes
+    /// `a.b = 1;`. Overrides match the path of the set being flattened.
+    #[serde(default)]
+    pub flatten: bool,
     /// (attrs only) Number of blank lines between the set's bindings. Unset
     /// keeps the existing spacing.
     #[serde(default)]
@@ -139,6 +145,7 @@ pub struct PartialRules {
     pub first: Option<Vec<String>>,
     pub last: Option<Vec<String>>,
     pub merge: Option<bool>,
+    pub flatten: Option<bool>,
     pub blank_lines: Option<usize>,
     pub blank_lines_mode: Option<BlankLinesMode>,
     pub blank_lines_depth: Option<usize>,
@@ -157,6 +164,9 @@ impl PartialRules {
         }
         if let Some(merge) = self.merge {
             rules.merge = merge;
+        }
+        if let Some(flatten) = self.flatten {
+            rules.flatten = flatten;
         }
         if let Some(blank_lines) = self.blank_lines {
             rules.blank_lines = Some(blank_lines);
@@ -387,6 +397,14 @@ impl Config {
                 .any(|o| o.attrs.as_ref().is_some_and(|a| a.merge == Some(true)))
     }
 
+    pub fn attrs_may_flatten(&self) -> bool {
+        self.attrs.flatten
+            || self
+                .overrides
+                .iter()
+                .any(|o| o.attrs.as_ref().is_some_and(|a| a.flatten == Some(true)))
+    }
+
     pub fn formatter_argv(&self) -> Vec<String> {
         match &self.formatter_command {
             Some(argv) => argv.clone(),
@@ -453,6 +471,7 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
     const SECTIONS: &[&str] = &["args", "lets", "inherits", "lists"];
     const ATTRS_ONLY: &[&str] = &[
         "merge",
+        "flatten",
         "blank-lines",
         "blank-lines-mode",
         "blank-lines-depth",
@@ -648,6 +667,7 @@ mod tests {
             [lets]
             sort = true
             merge = true
+            flatten = true
 
             [[overrides]]
             path = "**.xs"
@@ -657,11 +677,12 @@ mod tests {
         .parse()
         .unwrap();
         let found = ignored_keys(&table);
-        assert_eq!(found.len(), 3);
+        assert_eq!(found.len(), 4);
         assert!(found[0].contains("`args.blank-lines`"));
         assert!(found[1].contains("`lets.merge`"));
-        assert!(found[2].contains("`lists.blank-lines-mode`"));
-        assert!(found[2].contains("override for `**.xs`"));
+        assert!(found[2].contains("`lets.flatten`"));
+        assert!(found[3].contains("`lists.blank-lines-mode`"));
+        assert!(found[3].contains("override for `**.xs`"));
         assert!(ignored_keys(&"[attrs]\nmerge = true".parse().unwrap()).is_empty());
     }
 

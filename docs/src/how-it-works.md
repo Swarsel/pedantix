@@ -3,15 +3,15 @@
 `pedantix` parses Nix with [tree-sitter](https://tree-sitter.github.io/) and rewrites the syntax tree. A run works roughly like this:
 
 1. Perform an optional base formatting
-2. Sort expressions according to your config
-3. Perform an optional merging of attribute paths
-4. Optionally enforce spacing between attribute paths/sets
-1. Perform an optional base formatting
+2. Perform an optional merging/flattening of attribute paths
+3. Sort expressions according to your config
+4. Perform an optional base formatting
+5. Optionally enforce spacing between attribute paths/sets
 
 ## Safety
 
 - `pedantix` preserves semantics, which *should* guarantee that it will not break your config
-- repeated runs are idempotent (the only exception would be if you enforce a higher line spacing than allowed by your base formatter and then turning the after-pass off)
+- repeated runs are idempotent (the only exception would be if you enforce a higher line spacing than allowed by your base formatter)
 - It stays compliant with your base formatter (unless you do what I described above)
 
 ## Comments

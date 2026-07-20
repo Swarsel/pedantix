@@ -15,7 +15,7 @@ fn main() {
 
     render_struct(
         "Construct rules (`[args]`, `[attrs]`, `[lets]`, `[inherits]`, `[lists]`)",
-        Some("The `merge` and `blank-lines*` keys only apply to `[attrs]`."),
+        Some("The `merge`, `flatten`, and `blank-lines*` keys only apply to `[attrs]`."),
         &defs["SortRules"],
         defs,
         &[],

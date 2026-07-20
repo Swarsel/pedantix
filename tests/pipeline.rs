@@ -104,6 +104,38 @@ fn merge_through_the_full_pipeline() {
 }
 
 #[test]
+fn flatten_through_the_full_pipeline() {
+    if !have("nixfmt") {
+        eprintln!("skipping: nixfmt not on PATH");
+        return;
+    }
+    let cfg: Config = toml::from_str("[attrs]\nflatten = true\n").unwrap();
+    let src = "{\n  a = {\n    b = {\n      c = 1;\n    };\n  };\n  d = {\n    e = 2;\n    f = 3;\n  };\n}\n";
+    let out = process(src, &cfg).unwrap();
+    assert_eq!(
+        out,
+        "{\n  a.b.c = 1;\n  d = {\n    e = 2;\n    f = 3;\n  };\n}\n"
+    );
+    assert_eq!(out, process(&out, &cfg).unwrap(), "flatten not idempotent");
+}
+
+#[test]
+fn example_content_is_preserved_with_flatten() {
+    if !have("nixfmt") {
+        eprintln!("skipping: nixfmt not on PATH");
+        return;
+    }
+    let mut cfg = repo_config();
+    cfg.attrs.flatten = true;
+    let out = process(EXAMPLE, &cfg).unwrap();
+    assert_eq!(
+        pedantix::semantic::fingerprint_with(EXAMPLE, false, true).unwrap(),
+        pedantix::semantic::fingerprint_with(&out, false, true).unwrap()
+    );
+    assert_eq!(out, process(&out, &cfg).unwrap());
+}
+
+#[test]
 fn example_content_is_preserved_with_merge() {
     if !have("nixfmt") {
         eprintln!("skipping: nixfmt not on PATH");

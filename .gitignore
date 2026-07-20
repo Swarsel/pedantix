@@ -5,3 +5,4 @@
 .pre-commit-config.yaml
 /docs/book
 /docs/src/gen
+.envrc

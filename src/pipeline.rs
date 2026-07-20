@@ -13,7 +13,8 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
     } else {
         input.to_string()
     };
-    let merged = if cfg.attrs_may_merge() {
+    let restructures = cfg.attrs_may_merge() || cfg.attrs_may_flatten();
+    let merged = if restructures {
         Cow::Owned(crate::merge::merge_source(&formatted, cfg)?)
     } else {
         Cow::Borrowed(formatted.as_str())
@@ -25,7 +26,7 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
             &formatted,
             &sorted,
             cfg.lists_may_sort(),
-            cfg.attrs_may_merge(),
+            restructures,
         )?;
     }
     let output = if cfg.format_after_sort && (changed || !cfg.format_before_sort) {

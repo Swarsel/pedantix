@@ -1,7 +1,7 @@
 use crate::config::{Config, RuleKind};
 use crate::sort::{
-    Item, collect_items, container_region, descend_binding, inherit_names, item_sep, normalize_key,
-    parse, render_item_with, splice_children_with, splice_region, text,
+    Item, binding_components, collect_items, container_region, descend_binding, inherit_names,
+    item_sep, normalize_key, parse, render_item_with, splice_children_with, splice_region, text,
 };
 use anyhow::{Result, bail};
 use std::collections::{BTreeMap, HashSet};
@@ -28,11 +28,51 @@ fn rewrite(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Optio
         "attrset_expression" | "rec_attrset_expression" | "let_attrset_expression" => {
             merge_container(node, src, path, cfg)
         }
-        "binding" => descend_binding(node, src, path, |child, path| {
-            rewrite(child, src, path, cfg)
+        "binding" => flatten_binding(node, src, path, cfg).or_else(|| {
+            descend_binding(node, src, path, |child, path| {
+                rewrite(child, src, path, cfg)
+            })
         }),
         _ => splice_children(node, src, path, cfg),
     }
+}
+
+fn flatten_binding(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
+    let container = node.parent().and_then(|p| p.parent())?;
+    if !matches!(
+        container.kind(),
+        "attrset_expression" | "rec_attrset_expression" | "let_attrset_expression"
+    ) {
+        return None;
+    }
+    let value = node.child_by_field_name("expression")?;
+    if value.kind() != "attrset_expression" {
+        return None;
+    }
+    let mut cursor = node.walk();
+    if node.children(&mut cursor).any(|c| c.kind() == "comment") {
+        return None;
+    }
+    let (flat, _, _) = container_region(value)?;
+    let [inner] = flat.as_slice() else {
+        return None;
+    };
+    if inner.kind() != "binding" {
+        return None;
+    }
+    let inner_comps = attrpath_comp_nodes(*inner)?;
+    if !inner_comps.iter().all(|c| is_static_head(*c)) {
+        return None;
+    }
+    let depth = path.len();
+    path.extend(binding_components(node, src));
+    let flatten = cfg.rules_at(RuleKind::Attrs, path).flatten;
+    path.truncate(depth);
+    if !flatten {
+        return None;
+    }
+    let attrpath = node.child_by_field_name("attrpath")?;
+    Some(format!("{}.{}", text(attrpath, src), text(*inner, src)))
 }
 
 fn splice_children(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
@@ -319,5 +359,94 @@ mod tests {
     fn invalid_nix_is_rejected() {
         let config = cfg("[attrs]\nmerge = true\n");
         assert!(merge_source("{ a = ; }", &config).is_err());
+    }
+
+    #[test]
+    fn flattens_single_binding_sets() {
+        let config = cfg("[attrs]\nflatten = true\n");
+        for (src, want) in [
+            (
+                "{\n  a = {\n    b = \"x\";\n  };\n}\n",
+                "{\n  a.b = \"x\";\n}\n",
+            ),
+            (
+                "{\n  a = {\n    \"b c\" = 1;\n  };\n}\n",
+                "{\n  a.\"b c\" = 1;\n}\n",
+            ),
+            (
+                "{\n  a = {\n    b = {\n      c = 1;\n    };\n  };\n}\n",
+                "{\n  a.b.c = 1;\n}\n",
+            ),
+            (
+                "{\n  a.b = {\n    c = 1;\n  };\n}\n",
+                "{\n  a.b.c = 1;\n}\n",
+            ),
+            (
+                "{\n  a = {\n    b /*x*/ = 1;\n  };\n}\n",
+                "{\n  a.b /*x*/ = 1;\n}\n",
+            ),
+            (
+                "{\n  a = {\n    b = {\n      c = 1;\n      d = 2;\n    };\n  };\n}\n",
+                "{\n  a.b = {\n      c = 1;\n      d = 2;\n    };\n}\n",
+            ),
+            (
+                "rec {\n  a = {\n    b = 1;\n  };\n}\n",
+                "rec {\n  a.b = 1;\n}\n",
+            ),
+        ] {
+            let out = merged(src, &config);
+            assert_eq!(out, want, "input: {src}");
+            assert!(!crate::sort::parse(&out).unwrap().root_node().has_error());
+        }
+    }
+
+    #[test]
+    fn flatten_is_off_by_default() {
+        let src = "{\n  a = {\n    b = 1;\n  };\n}\n";
+        assert_eq!(merged(src, &Config::default()), src);
+    }
+
+    #[test]
+    fn unflattenable_bindings_are_untouched() {
+        let config = cfg("[attrs]\nflatten = true\n");
+        for src in [
+            "{\n  a = {\n    b = 1;\n    c = 2;\n  };\n}\n",
+            "{\n  a = rec {\n    b = 1;\n  };\n}\n",
+            "{\n  a = { };\n}\n",
+            "{\n  a = {\n    inherit b;\n  };\n}\n",
+            "{\n  a = {\n    ${x} = 1;\n  };\n}\n",
+            "{\n  a = {\n    \"b${x}\" = 1;\n  };\n}\n",
+            "{\n  a = {\n    # about b\n    b = 1;\n  };\n}\n",
+            "{\n  a = {\n    b = 1; # trailing b\n  };\n}\n",
+            "{\n  a = # about the set\n    {\n      b = 1;\n    };\n}\n",
+            "let\n  a = {\n    b = 1;\n  };\nin\na\n",
+        ] {
+            assert_eq!(merged(src, &config), src);
+        }
+    }
+
+    #[test]
+    fn flatten_and_merge_compose() {
+        let config = cfg("[attrs]\nmerge = true\nflatten = true\n");
+        let out = merged("{\n  a.b = {\n    x = 1;\n  };\n  a.c = 2;\n}\n", &config);
+        assert_eq!(out, "{\n  a = {\n    b.x = 1;\n    c = 2;\n  };\n}\n");
+        assert_eq!(merged(&out, &config), out);
+    }
+
+    #[test]
+    fn per_path_overrides_toggle_flatten() {
+        let src = "{\n  keep = {\n    a = 1;\n  };\n  other = {\n    b = 2;\n  };\n}\n";
+        let config = cfg(
+            "[attrs]\nflatten = true\n[[overrides]]\npath = \"**.keep\"\nattrs.flatten = false\n",
+        );
+        assert_eq!(
+            merged(src, &config),
+            "{\n  keep = {\n    a = 1;\n  };\n  other.b = 2;\n}\n"
+        );
+        let config = cfg("[[overrides]]\npath = \"**.other\"\nattrs.flatten = true\n");
+        assert_eq!(
+            merged(src, &config),
+            "{\n  keep = {\n    a = 1;\n  };\n  other.b = 2;\n}\n"
+        );
     }
 }
