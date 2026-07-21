@@ -4,7 +4,7 @@
 
 It was bothering me that in my NixOS configuration, I was never consistent in ordering my module arguments, some being `{ lib, config, pkgs, ... }` and some others being  `{ config, lib, pkgs, ... }`, you get the idea. Also I had grown tired of [statix](https://github.com/oppiliappan/statix)' `repeated_keys` error. Lastly, due to the nature of the nix language, I do not think there is much value in custom ordering of attributes except for in let bindings (I guess you could make a case for `rec` as well).
 
-`pedantix` does this for you while staying compliant with your formatter of choice (tested with [nixfmt](https://github.com/NixOS/nixfmt), [alejandra](https://github.com/kamadorueda/alejandra), and [nixpkgs-fmt](https://github.com/nix-community/nixpkgs-fmt)). I guess you can consider it a cherry on top :)
+`pedantix` does this for you while staying compliant with your formatter of choice (tested with [nixfmt](https://github.com/NixOS/nixfmt), [nixfmt-rs](https://github.com/Mic92/nixfmt-rs), [alejandra](https://github.com/kamadorueda/alejandra), and [nixpkgs-fmt](https://github.com/nix-community/nixpkgs-fmt)). I guess you can consider it a cherry on top :)
 
 All features are optional; these are on by default:
 
