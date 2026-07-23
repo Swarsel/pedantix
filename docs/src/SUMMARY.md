@@ -13,3 +13,4 @@
   - [Pre-commit / git-hooks](nix-git-hooks.md)
   - [Home Manager](nix-home-manager.md)
 - [Emacs integration](emacs.md)
+- [Pre-commit framework](pre-commit.md)
