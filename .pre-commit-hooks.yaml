@@ -1,0 +1,13 @@
+- id: pedantix
+  name: pedantix
+  description: Reorder and format Nix files with pedantix.
+  entry: pedantix
+  language: rust
+  types: [nix]
+
+- id: pedantix-nix
+  name: pedantix (via nix run)
+  description: Reorder and format Nix files with pedantix, run through Nix.
+  entry: nix --extra-experimental-features "flakes nix-command" run github:swarsel/pedantix --
+  language: system
+  types: [nix]
