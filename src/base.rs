@@ -16,7 +16,8 @@ pub fn run_base_formatter(cfg: &Config, input: &str) -> Result<String> {
         .spawn()
         .with_context(|| {
             format!(
-                "failed to run base formatter `{}` (is it on PATH?)",
+                "failed to run base formatter `{}` (is it on PATH? \
+                 set `formatter = \"off\"` in pedantix.toml to only reorder)",
                 argv[0]
             )
         })?;
