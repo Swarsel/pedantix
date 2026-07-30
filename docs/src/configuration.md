@@ -21,7 +21,7 @@ preset = "nixos-module"
 
 ### The five construct tables share one shape
 
-`[args]`, `[attrs]`, `[lets]`, `[inherits]`, and `[lists]` all take the same **sort rules** keys. Names not listed in `first` / `last` are sorted alphabetically between them. The `merge`, `flatten`, and `blank-lines*` keys are only meaningful under `[attrs]`.
+`[args]`, `[attrs]`, `[lets]`, `[inherits]`, and `[lists]` all take the same **sort rules** keys. Names not listed in `first` / `last` are sorted alphabetically between them. The `merge`, `flatten`, and `blank-lines*` keys are only meaningful under `[attrs]`; `name-style` is meaningful under `[attrs]`, `[lets]`, and `[inherits]`.
 
 ```toml
 [args]
@@ -54,6 +54,37 @@ flatten = true
 ```
 
 turns `a = { b = 1; };` into `a.b = 1;`, provided `b` is the only binding in the set. This skips on `rec`, `inherit`, dynamic keys, and comments around binding.
+
+### `name-style` quoting of names
+
+```toml
+[attrs]
+name-style = "identifier"
+```
+
+unquotes every attribute name that is a valid [identifier](https://nix.dev/manual/nix/latest/language/identifiers):
+
+```nix
+{
+  "valid" = true;
+  "not valid" = false;
+}
+```
+
+becomes
+
+```nix
+{
+  valid = true;
+  "not valid" = false;
+}
+```
+
+You can also use `name-style = "string"` to quote every name instead; this is best used via [`[[overrides]]`](overrides.md). The default, `preserve`, keeps names as written.
+
+The style is resolved for each attrpath component at that component's own path, so an override on `**.users.users` styles exactly the `<name>` position, and `users.users."bob".isNormalUser = true;` behaves the same as its nested spelling.
+
+For now, attribute access is not managed, e.g. `x = a."b".c;` will not be touched.
 
 ### Top-level blank lines vs. `[attrs] blank-lines`
 

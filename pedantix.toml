@@ -51,6 +51,11 @@ formatter = "nixfmt"
 #   sort  = true/false    -- whether to reorder at all
 #   first = [...]         -- names that always come first, in the given order
 #   last  = [...]         -- names that always come last, in the given order
+# [attrs], [lets], and [inherits] additionally accept:
+#   name-style            -- "preserve" (default) / "identifier" / "string";
+#                            "identifier" unquotes names that are valid
+#                            identifiers: `"a" = 1;` -> `a = 1;`
+#                            "string" quotes every name instead
 # [attrs] additionally accepts:
 #   merge = true/false    -- merge bindings sharing their first attrpath
 #                            component into one nested set (default false):

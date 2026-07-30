@@ -6,16 +6,23 @@ use tree_sitter::Node;
 struct Opts {
     unordered_lists: bool,
     flatten_attrs: bool,
+    unstyled_names: bool,
 }
 
 pub fn fingerprint(src: &str) -> Result<String> {
-    fingerprint_with(src, false, false)
+    fingerprint_with(src, false, false, false)
 }
 
-pub fn fingerprint_with(src: &str, unordered_lists: bool, flatten_attrs: bool) -> Result<String> {
+pub fn fingerprint_with(
+    src: &str,
+    unordered_lists: bool,
+    flatten_attrs: bool,
+    unstyled_names: bool,
+) -> Result<String> {
     let opts = Opts {
         unordered_lists,
         flatten_attrs,
+        unstyled_names,
     };
     let tree = crate::sort::parse(src)?;
     let mut out = String::new();
@@ -36,9 +43,10 @@ pub fn check_same_content(
     after: &str,
     unordered_lists: bool,
     flatten_attrs: bool,
+    unstyled_names: bool,
 ) -> Result<()> {
-    if fingerprint_with(before, unordered_lists, flatten_attrs)?
-        != fingerprint_with(after, unordered_lists, flatten_attrs)?
+    if fingerprint_with(before, unordered_lists, flatten_attrs, unstyled_names)?
+        != fingerprint_with(after, unordered_lists, flatten_attrs, unstyled_names)?
     {
         bail!(
             "internal error: reordering would have changed the file's content; \
@@ -56,6 +64,29 @@ fn named_non_comment_children<'a>(node: Node<'a>) -> Vec<Node<'a>> {
 }
 
 fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
+    if opts.unstyled_names && matches!(node.kind(), "attrpath" | "inherited_attrs") {
+        out.push('(');
+        out.push_str(node.kind());
+        let mut parts: Vec<String> = named_non_comment_children(node)
+            .into_iter()
+            .map(|c| match static_name(c, src) {
+                Some(name) => format!("(name {name})"),
+                None => {
+                    let mut s = String::new();
+                    canon(c, src, &mut s, opts);
+                    s
+                }
+            })
+            .collect();
+        if node.kind() == "inherited_attrs" {
+            parts.sort();
+        }
+        for p in parts {
+            out.push_str(&p);
+        }
+        out.push(')');
+        return;
+    }
     if opts.flatten_attrs && node.kind() == "binding_set" {
         out.push_str("(binding_set");
         write_entry(set_entry(node, src, opts), out);
@@ -96,6 +127,24 @@ fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
         }
     }
     out.push(')');
+}
+
+fn static_name(node: Node, src: &str) -> Option<String> {
+    let raw = &src[node.start_byte()..node.end_byte()];
+    match node.kind() {
+        "identifier" => Some(raw.to_string()),
+        "string_expression" => {
+            let mut cursor = node.walk();
+            if node
+                .children(&mut cursor)
+                .any(|c| c.kind() == "interpolation")
+            {
+                return None;
+            }
+            Some(raw.strip_prefix('"')?.strip_suffix('"')?.to_string())
+        }
+        _ => None,
+    }
 }
 
 #[derive(Default)]
@@ -221,8 +270,8 @@ mod tests {
             fingerprint("[ 2 1 ]").unwrap()
         );
         assert_eq!(
-            fingerprint_with("[ 1 2 ]", true, false).unwrap(),
-            fingerprint_with("[ 2 1 ]", true, false).unwrap()
+            fingerprint_with("[ 1 2 ]", true, false, false).unwrap(),
+            fingerprint_with("[ 2 1 ]", true, false, false).unwrap()
         );
     }
 
@@ -241,32 +290,51 @@ mod tests {
             fingerprint("{ a = { b = 1; c = 2; }; }").unwrap()
         );
         assert_eq!(
-            fingerprint_with("{ a.b = 1; a.c = 2; }", false, true).unwrap(),
-            fingerprint_with("{ a = { b = 1; c = 2; }; }", false, true).unwrap()
+            fingerprint_with("{ a.b = 1; a.c = 2; }", false, true, false).unwrap(),
+            fingerprint_with("{ a = { b = 1; c = 2; }; }", false, true, false).unwrap()
         );
         assert_eq!(
-            fingerprint_with("{ a.b.c = 1; }", false, true).unwrap(),
-            fingerprint_with("{ a = { b = { c = 1; }; }; }", false, true).unwrap()
+            fingerprint_with("{ a.b.c = 1; }", false, true, false).unwrap(),
+            fingerprint_with("{ a = { b = { c = 1; }; }; }", false, true, false).unwrap()
         );
     }
 
     #[test]
     fn flattening_still_detects_content_changes() {
         assert_ne!(
-            fingerprint_with("{ a.b = 1; }", false, true).unwrap(),
-            fingerprint_with("{ a.b = 2; }", false, true).unwrap()
+            fingerprint_with("{ a.b = 1; }", false, true, false).unwrap(),
+            fingerprint_with("{ a.b = 2; }", false, true, false).unwrap()
         );
         assert_ne!(
-            fingerprint_with("{ a.b = 1; }", false, true).unwrap(),
-            fingerprint_with("{ a.c = 1; }", false, true).unwrap()
+            fingerprint_with("{ a.b = 1; }", false, true, false).unwrap(),
+            fingerprint_with("{ a.c = 1; }", false, true, false).unwrap()
         );
         assert_ne!(
-            fingerprint_with("{ a = rec { b = 1; }; }", false, true).unwrap(),
-            fingerprint_with("{ a.b = 1; }", false, true).unwrap()
+            fingerprint_with("{ a = rec { b = 1; }; }", false, true, false).unwrap(),
+            fingerprint_with("{ a.b = 1; }", false, true, false).unwrap()
         );
         assert_ne!(
-            fingerprint_with("{ a = { }; }", false, true).unwrap(),
-            fingerprint_with("{ }", false, true).unwrap()
+            fingerprint_with("{ a = { }; }", false, true, false).unwrap(),
+            fingerprint_with("{ }", false, true, false).unwrap()
+        );
+    }
+
+    #[test]
+    fn name_styles_match_unless_flagged() {
+        let names = |src: &str| fingerprint_with(src, false, false, true).unwrap();
+        assert_ne!(
+            fingerprint("{ \"a\" = 1; }").unwrap(),
+            fingerprint("{ a = 1; }").unwrap()
+        );
+        assert_eq!(names("{ \"a\" = 1; }"), names("{ a = 1; }"));
+        assert_eq!(
+            names("{ inherit (x) \"a\" b; }"),
+            names("{ inherit (x) b a; }")
+        );
+        assert_ne!(names("{ \"a b\" = 1; }"), names("{ ab = 1; }"));
+        assert_eq!(
+            fingerprint_with("{ \"a${[ 1 2 ]}\" = 1; }", true, false, true).unwrap(),
+            fingerprint_with("{ \"a${[ 2 1 ]}\" = 1; }", true, false, true).unwrap()
         );
     }
 }

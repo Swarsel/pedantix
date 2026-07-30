@@ -26,6 +26,11 @@ fn default_inherit_placement_doc() -> &'static str {
     "front"
 }
 
+#[cfg(feature = "docs")]
+fn default_name_style_doc() -> &'static str {
+    "preserve"
+}
+
 pub const DEFAULTED_TOKEN: &str = "<defaulted>";
 
 /// Base formatter run before and after sorting.
@@ -66,6 +71,21 @@ pub enum BlankLinesMode {
     All,
     /// Suppress spacing entirely.
     Off,
+}
+
+/// Quoting style for attribute and `inherit` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum NameStyle {
+    /// Keep names as written.
+    #[default]
+    Preserve,
+    /// Unquote names that are valid identifiers: `"a" = 1;` becomes
+    /// `a = 1;`.
+    Identifier,
+    /// Quote every name: `a = 1;` becomes `"a" = 1;`.
+    String,
 }
 
 /// Where `inherit` statements land relative to ordinary bindings.
@@ -109,6 +129,13 @@ pub struct SortRules {
     /// `a.b = 1;`. Overrides match the path of the set being flattened.
     #[serde(default)]
     pub flatten: bool,
+    /// (attrs, lets, inherits) Quoting style for names: `identifier` unquotes
+    /// names that are valid identifiers (`"a" = 1;` becomes `a = 1;`),
+    /// `string` quotes every name, and `preserve` (the default) keeps names
+    /// as written.
+    #[serde(default)]
+    #[cfg_attr(feature = "docs", schemars(default = "default_name_style_doc"))]
+    pub name_style: NameStyle,
     /// (attrs only) Number of blank lines between the set's bindings. Unset
     /// keeps the existing spacing.
     #[serde(default)]
@@ -146,6 +173,7 @@ pub struct PartialRules {
     pub last: Option<Vec<String>>,
     pub merge: Option<bool>,
     pub flatten: Option<bool>,
+    pub name_style: Option<NameStyle>,
     pub blank_lines: Option<usize>,
     pub blank_lines_mode: Option<BlankLinesMode>,
     pub blank_lines_depth: Option<usize>,
@@ -167,6 +195,9 @@ impl PartialRules {
         }
         if let Some(flatten) = self.flatten {
             rules.flatten = flatten;
+        }
+        if let Some(name_style) = self.name_style {
+            rules.name_style = name_style;
         }
         if let Some(blank_lines) = self.blank_lines {
             rules.blank_lines = Some(blank_lines);
@@ -397,6 +428,21 @@ impl Config {
                 .any(|o| o.attrs.as_ref().is_some_and(|a| a.merge == Some(true)))
     }
 
+    pub fn names_may_restyle(&self) -> bool {
+        let on = |rules: &SortRules| rules.name_style != NameStyle::Preserve;
+        on(&self.attrs)
+            || on(&self.lets)
+            || on(&self.inherits)
+            || self.overrides.iter().any(|o| {
+                [&o.attrs, &o.lets, &o.inherits].into_iter().any(|p| {
+                    p.as_ref().is_some_and(|p| {
+                        p.name_style
+                            .is_some_and(|style| style != NameStyle::Preserve)
+                    })
+                })
+            })
+    }
+
     pub fn attrs_may_flatten(&self) -> bool {
         self.attrs.flatten
             || self
@@ -484,6 +530,12 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
                     "`{section}.{key}`{context} has no effect; only `attrs` supports `{key}`"
                 ));
             }
+        }
+        if matches!(section, "args" | "lists") && rules.contains_key("name-style") {
+            found.push(format!(
+                "`{section}.name-style`{context} has no effect; only `attrs`, `lets`, and \
+                 `inherits` support `name-style`"
+            ));
         }
     };
     for section in SECTIONS {
@@ -749,6 +801,46 @@ mod tests {
         let cfg: Config =
             toml::from_str("[[overrides]]\npath = \"**.xs\"\nlists.sort = true").unwrap();
         assert!(cfg.lists_may_sort());
+    }
+
+    #[test]
+    fn names_may_restyle_detection() {
+        assert!(!Config::default().names_may_restyle());
+        for section in ["attrs", "lets", "inherits"] {
+            let cfg: Config =
+                toml::from_str(&format!("[{section}]\nname-style = \"identifier\"")).unwrap();
+            assert!(cfg.names_may_restyle(), "{section}");
+        }
+        let cfg: Config =
+            toml::from_str("[[overrides]]\npath = \"**.xs\"\nattrs.name-style = \"string\"")
+                .unwrap();
+        assert!(cfg.names_may_restyle());
+        let cfg: Config =
+            toml::from_str("[[overrides]]\npath = \"**.xs\"\nlets.name-style = \"preserve\"")
+                .unwrap();
+        assert!(!cfg.names_may_restyle());
+    }
+
+    #[test]
+    fn name_style_is_reported_as_ignored_outside_named_constructs() {
+        let table: toml::Table = r#"
+            [args]
+            name-style = "identifier"
+
+            [lets]
+            name-style = "identifier"
+
+            [[overrides]]
+            path = "**.xs"
+            lists.name-style = "string"
+        "#
+        .parse()
+        .unwrap();
+        let found = ignored_keys(&table);
+        assert_eq!(found.len(), 2);
+        assert!(found[0].contains("`args.name-style`"));
+        assert!(found[1].contains("`lists.name-style`"));
+        assert!(found[1].contains("override for `**.xs`"));
     }
 
     #[test]

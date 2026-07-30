@@ -15,7 +15,10 @@ fn main() {
 
     render_struct(
         "Construct rules (`[args]`, `[attrs]`, `[lets]`, `[inherits]`, `[lists]`)",
-        Some("The `merge`, `flatten`, and `blank-lines*` keys only apply to `[attrs]`."),
+        Some(
+            "The `merge`, `flatten`, and `blank-lines*` keys only apply to `[attrs]`; \
+             `name-style` applies to `[attrs]`, `[lets]`, and `[inherits]`.",
+        ),
         &defs["SortRules"],
         defs,
         &[],
@@ -29,7 +32,12 @@ fn main() {
         &[],
     );
 
-    for name in ["FormatterChoice", "BlankLinesMode", "InheritPlacement"] {
+    for name in [
+        "FormatterChoice",
+        "BlankLinesMode",
+        "InheritPlacement",
+        "NameStyle",
+    ] {
         render_enum(name, &defs[name]);
     }
 }

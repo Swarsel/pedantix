@@ -129,8 +129,8 @@ fn example_content_is_preserved_with_flatten() {
     cfg.attrs.flatten = true;
     let out = process(EXAMPLE, &cfg).unwrap();
     assert_eq!(
-        pedantix::semantic::fingerprint_with(EXAMPLE, false, true).unwrap(),
-        pedantix::semantic::fingerprint_with(&out, false, true).unwrap()
+        pedantix::semantic::fingerprint_with(EXAMPLE, false, true, false).unwrap(),
+        pedantix::semantic::fingerprint_with(&out, false, true, false).unwrap()
     );
     assert_eq!(out, process(&out, &cfg).unwrap());
 }
@@ -145,10 +145,55 @@ fn example_content_is_preserved_with_merge() {
     cfg.attrs.merge = true;
     let out = process(EXAMPLE, &cfg).unwrap();
     assert_eq!(
-        pedantix::semantic::fingerprint_with(EXAMPLE, false, true).unwrap(),
-        pedantix::semantic::fingerprint_with(&out, false, true).unwrap()
+        pedantix::semantic::fingerprint_with(EXAMPLE, false, true, false).unwrap(),
+        pedantix::semantic::fingerprint_with(&out, false, true, false).unwrap()
     );
     assert_eq!(out, process(&out, &cfg).unwrap());
+}
+
+#[test]
+fn name_style_through_the_full_pipeline() {
+    if !have("nixfmt") {
+        eprintln!("skipping: nixfmt not on PATH");
+        return;
+    }
+    let cfg: Config = toml::from_str("[attrs]\nname-style = \"identifier\"\n").unwrap();
+    let src = "{\n  \"valid\" = true;\n  \"not valid\" = false;\n  \"kebab-case\" = true;\n  \"if\" = false;\n}\n";
+    let out = process(src, &cfg).unwrap();
+    assert_eq!(
+        out,
+        "{\n  \"if\" = false;\n  kebab-case = true;\n  \"not valid\" = false;\n  valid = true;\n}\n"
+    );
+    assert_eq!(
+        out,
+        process(&out, &cfg).unwrap(),
+        "name-style not idempotent"
+    );
+
+    let cfg: Config = toml::from_str("[attrs]\nname-style = \"string\"\n").unwrap();
+    let out = process("{\n  b = 1;\n  a = 2;\n}\n", &cfg).unwrap();
+    assert_eq!(out, "{\n  \"a\" = 2;\n  \"b\" = 1;\n}\n");
+    assert_eq!(
+        out,
+        process(&out, &cfg).unwrap(),
+        "name-style not idempotent"
+    );
+
+    let cfg: Config = toml::from_str(
+        "[attrs]\nflatten = true\nname-style = \"identifier\"\n[[overrides]]\npath = \"**.users.users\"\nattrs.name-style = \"string\"\n",
+    )
+    .unwrap();
+    let out = process(
+        "{\n  users.users = {\n    bob = {\n      isNormalUser = true;\n    };\n  };\n}\n",
+        &cfg,
+    )
+    .unwrap();
+    assert_eq!(out, "{\n  users.users.\"bob\".isNormalUser = true;\n}\n");
+    assert_eq!(
+        out,
+        process(&out, &cfg).unwrap(),
+        "flatten + name-style override not idempotent"
+    );
 }
 
 #[test]
