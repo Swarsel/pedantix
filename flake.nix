@@ -90,8 +90,14 @@
           };
         };
         perSystem =
-          { config, pkgs, ... }:
+          {
+            lib,
+            config,
+            pkgs,
+            ...
+          }:
           let
+            conventional-pre-commit = pkgs.callPackage ./nix/conventional-pre-commit.nix { };
             optionsDoc = import ./nix/options-doc.nix {
               inherit pkgs;
               localFlake = {
@@ -152,6 +158,11 @@
               pedantix-wrapped = pedantix.wrapped;
             };
             pre-commit.settings.hooks = {
+              conventional-pre-commit = {
+                enable = true;
+                entry = lib.getExe conventional-pre-commit;
+                stages = [ "commit-msg" ];
+              };
               deadnix = {
                 enable = true;
                 excludes = [ "example.nix" ];
