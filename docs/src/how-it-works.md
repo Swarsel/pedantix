@@ -27,6 +27,8 @@ When attributes are reordered, comments move with the binding they belong to, i.
 
 ## The base formatter
 
-There are a number of good Nix formatters out there and I considered it a foolish idea to introduce a new one into the ecosystem that nobody would want to adapt; iInstead, you can bring your own formatter and still use `pedantix` in any case.
+There are a number of good Nix formatters out there and I considered it a foolish idea to introduce a new one into the ecosystem that nobody would want to adapt; instead, you can bring your own formatter and still use `pedantix` in any case.
 
 If the default set of base formatters (`nixfmt`, `alejandra`, `nixpkgs-fmt`) is not to your liking, you can supply any command of your choosing that reads from `stdin` and emits to `stdout`. For safety reasons, the latter is only accepted when passed directly on the CLI or when passing `--allow-formatter-command`. See [Configuration](configuration.md#the-base-formatter) for details.
+
+It is also possible to use drop-in replacement formatters like [nixfmt-rs](https://github.com/Mic92/nixfmt-rs). SImply install them and keep the formatter config to that name.

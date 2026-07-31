@@ -2,7 +2,7 @@
 
 `pedantix` is the pedantic Nix formatter.
 
-It  runs your base formatter of choice ([`nixfmt`](https://github.com/NixOS/nixfmt), [`alejandra`](https://github.com/kamadorueda/alejandra), [`nixpkgs-fmt`](https://github.com/nix-community/nixpkgs-fmt), or an arbitrary command of your choosing) and then applies reordering on top. Every feature is optional.
+It  runs your base formatter of choice ([`nixfmt`](https://github.com/NixOS/nixfmt)[(`-rs`)](https://github.com/Mic92/nixfmt-rs), [`alejandra`](https://github.com/kamadorueda/alejandra), [`nixpkgs-fmt`](https://github.com/nix-community/nixpkgs-fmt), or an arbitrary command of your choosing) and then applies reordering on top. Every feature is optional.
 
 On by default:
 

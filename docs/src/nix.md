@@ -29,6 +29,10 @@ Or, to install via [home-manager](https://github.com/nix-community/home-manager)
 home.packages = [ pedantix.packages.${system}.pedantix-wrapped ];
 ```
 
+> **Note:**
+>
+> When using a drop-in replacement formatter (e.g. [nixfmt-rs](https://github.com/Mic92/nixfmt-rs)), you should either use the unwrapped package with your replacement package installed, or use your own wrapper. Then, set that formatter's name in your config as normal.
+
 ## App
 
 You can run `pedantix` directly from any system that has `nix` installed:
