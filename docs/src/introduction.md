@@ -7,7 +7,7 @@ It  runs your base formatter of choice ([`nixfmt`](https://github.com/NixOS/nixf
 On by default:
 
 - ordering of function arguments
-- ordering of attributes (comment blocks above the moved line stay attached)
+- ordering of attributes
 
 Off by default:
 
@@ -18,7 +18,9 @@ Off by default:
 - flattening of attribute sets with a single entry
 - (un-)quoting of attribute names
 - enforcing of blank lines in between attribute sets
-- ordering overrides for custom attribute paths
+- overrides for arbitrary attribute paths
+
+Comment blocks stay attached to their belonging configuration (mostly! - see [How it Works](how-it-works.md#comments)).
 
 <br>
 

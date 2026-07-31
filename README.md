@@ -6,21 +6,18 @@ It was bothering me that in my NixOS configuration, I was never consistent in or
 
 `pedantix` does this for you while staying compliant with your formatter of choice (tested with [nixfmt](https://github.com/NixOS/nixfmt)[(-rs)](https://github.com/Mic92/nixfmt-rs), [alejandra](https://github.com/kamadorueda/alejandra), and [nixpkgs-fmt](https://github.com/nix-community/nixpkgs-fmt)). I guess you can consider it a cherry on top :)
 
-All features are optional; these are on by default:
+Here are some of its features (everything is optional):
 
 - ordering of function arguments
-- ordering of attributes (comment blocks above the moved line stay attached)
-
-These features are off by default:
-
-- ordering of inherits (a case could be made that this should be on by default)
+- ordering of attributes
+- ordering of inherits
 - ordering of let bindings
-- ordering of lists
+- ordering of lists (use with caution!)
 - merging of repeated keys (this does not fix broken evaluations)
 - flattening of attribute sets with a single entry
-- (un-)quoting of attribute names
+- (un-)quoting of (valid) identifiers
 - enforcing of blank lines in between attribute sets
-- ordering overrides for custom attribute paths
+- overrides for arbitrary attribute paths
 
 ## Try it now
 
