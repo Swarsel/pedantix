@@ -122,6 +122,76 @@ fn stdin_filepath_selects_config_and_flake_spacing() {
 }
 
 #[test]
+fn files_entries_configure_matching_files() {
+    let dir = temp_dir("per-file");
+    std::fs::create_dir_all(dir.join("pkgs")).unwrap();
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(
+        dir.join("pedantix.toml"),
+        "formatter = \"off\"\n\n[[files]]\npattern = \"*.pkg.nix\"\nattrs.sort = false\n\n\
+         [[files]]\npattern = \"pkgs/*.nix\"\nattrs.first = [\"b\"]\n",
+    )
+    .unwrap();
+    let module = dir.join("module.nix");
+    let package = dir.join("hello.pkg.nix");
+    let nested = dir.join("pkgs").join("nested.nix");
+    for file in [&module, &package, &nested] {
+        std::fs::write(file, "{ b = 1; a = 2; }\n").unwrap();
+    }
+
+    let args: Vec<&str> = [&module, &package, &nested]
+        .map(|f| f.to_str().unwrap())
+        .to_vec();
+    assert!(pedantix(&args, None).status.success());
+    assert_eq!(
+        std::fs::read_to_string(&module).unwrap(),
+        "{ a = 2; b = 1; }\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&package).unwrap(),
+        "{ b = 1; a = 2; }\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&nested).unwrap(),
+        "{ b = 1; a = 2; }\n"
+    );
+
+    let out = pedantix(
+        &["--stdin-filepath", package.to_str().unwrap(), "--check"],
+        Some("{ b = 1; a = 2; }\n"),
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn files_entry_formatter_command_is_not_executed_from_discovered_config() {
+    let dir = temp_dir("per-file-untrusted");
+    std::fs::write(
+        dir.join("pedantix.toml"),
+        "formatter = \"off\"\n\n[[files]]\npattern = \"*.nix\"\nformatter-command = [\"cat\"]\n",
+    )
+    .unwrap();
+    let file = dir.join("f.nix");
+    std::fs::write(&file, "{ b = 1; a = 2; }\n").unwrap();
+    let file = file.to_str().unwrap();
+
+    let out = pedantix(&[file], None);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("--allow-formatter-command"));
+
+    let out = pedantix(&["--allow-formatter-command", file], None);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(file).unwrap(),
+        "{ a = 2; b = 1; }\n"
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn formatter_flag_overrides_formatter_command() {
     let broken = r#"formatter-command = ["pedantix-missing-base-formatter"]"#;
     let out = pedantix(

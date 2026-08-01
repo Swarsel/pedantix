@@ -46,7 +46,7 @@ pub struct Cli {
     pub formatter: Option<FormatterChoice>,
 
     /// Path the stdin content notionally comes from; used for config
-    /// discovery in stdin mode.
+    /// discovery and `[[files]]` pattern matching in stdin mode.
     #[arg(long)]
     pub stdin_filepath: Option<PathBuf>,
 }

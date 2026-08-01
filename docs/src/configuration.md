@@ -100,6 +100,6 @@ A reordered set by default drops all blank lines, so set one of these to restore
 
 `[inherits]` sorts the *names inside* an `inherit`. The top-level `inherit-placement` key is separate: it controls where the whole `inherit` *statement* sits relative to other bindings.
 
-## Per-path overrides
+## Overriding of options for specific attribute or file paths
 
-The `[[overrides]]` array lets you change any of the rules above for specific attribute paths — see [Overrides](overrides.md).
+The `[[overrides]]` and `[[files]]` arrays let you change any of the rules above for specific attribute or file paths — see [Overrides](overrides.md).

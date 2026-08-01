@@ -7,7 +7,7 @@
 - [Command line](cli.md)
 - [Configuration](configuration.md)
   - [Presets](presets.md)
-  - [Overrides](overrides.md)
+  - [(Per-file) Overrides](overrides.md)
 - [Nix integration](nix.md)
   - [treefmt](nix-treefmt.md)
   - [Pre-commit / git-hooks](nix-git-hooks.md)
