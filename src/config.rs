@@ -377,8 +377,8 @@ fn expand_files(mut table: toml::Table, file: Option<&str>) -> Result<toml::Tabl
                  single leading `./` pins a pattern to that directory instead)"
             );
         }
-        let _: Config = expand_preset(entry.clone())
-            .and_then(|expanded| Ok(expanded.try_into()?))
+        expand_preset(entry.clone())
+            .and_then(Config::try_validated)
             .with_context(|| format!("invalid `files` entry for pattern `{pattern}`"))?;
         if !file.is_some_and(|f| glob_match_file(&pattern, f)) {
             continue;
@@ -428,9 +428,46 @@ impl Config {
     }
 
     pub fn from_table_for_file(table: toml::Table, file: Option<&str>) -> Result<Config> {
-        expand_preset(expand_files(table, file)?)?
-            .try_into()
-            .context("invalid configuration")
+        Config::try_validated(expand_preset(expand_files(table, file)?)?)
+    }
+
+    fn try_validated(table: toml::Table) -> Result<Config> {
+        let cfg: Config = table.try_into()?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let check = |first: &[String], last: &[String], what: &str| -> Result<()> {
+            if first.iter().any(|n| n == "...") {
+                bail!(
+                    "{what} pins `...` via `first`, but `...` must stay the final formal; \
+                     pin it as the last entry of `last` instead"
+                );
+            }
+            if last
+                .iter()
+                .position(|n| n == "...")
+                .is_some_and(|i| i + 1 != last.len())
+            {
+                bail!(
+                    "{what} pins `...` before other names via `last`, but `...` must stay \
+                     the final formal"
+                );
+            }
+            Ok(())
+        };
+        check(&self.args.first, &self.args.last, "`args`")?;
+        for o in &self.overrides {
+            if let Some(args) = &o.args {
+                check(
+                    args.first.as_deref().unwrap_or_default(),
+                    args.last.as_deref().unwrap_or_default(),
+                    &format!("`args` in the override for `{}`", o.path),
+                )?;
+            }
+        }
+        Ok(())
     }
 
     pub fn from_toml_str(text: &str) -> Result<Config> {
@@ -848,6 +885,22 @@ mod tests {
         assert!(found[1].contains("`lists.merge`"));
         assert!(
             found[1].contains("in the override for `**.xs` in the `files` entry for `*.pkg.nix`")
+        );
+    }
+
+    #[test]
+    fn ellipsis_pins_must_stay_final() {
+        let err = |toml: &str| format!("{:#}", Config::from_toml_str(toml).expect_err(toml));
+        assert!(err("[args]\nfirst = [\"...\"]").contains("final formal"));
+        assert!(err("[args]\nlast = [\"...\", \"x\"]").contains("final formal"));
+        assert!(Config::from_toml_str("[args]\nlast = [\"x\", \"...\"]").is_ok());
+        assert!(
+            err("[[overrides]]\npath = \"**.x\"\nargs.first = [\"...\"]")
+                .contains("override for `**.x`")
+        );
+        assert!(
+            err("[[files]]\npattern = \"*.nix\"\nargs.last = [\"...\", \"x\"]")
+                .contains("invalid `files` entry for pattern `*.nix`")
         );
     }
 
