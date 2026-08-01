@@ -29,9 +29,15 @@ fn formatter_command_allowed(cli: &Cli) -> bool {
         })
 }
 
-fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<Config> {
-    let (text, origin, discovered) = if let Some(inline) = &cli.config_toml {
-        (inline.clone(), "--config-toml".to_string(), false)
+struct LoadedConfig {
+    table: toml::Table,
+    origin: String,
+    dir: Option<PathBuf>,
+}
+
+fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<LoadedConfig> {
+    let (text, origin, config_dir, discovered) = if let Some(inline) = &cli.config_toml {
+        (inline.clone(), "--config-toml".to_string(), None, false)
     } else {
         let (path, discovered) = match &cli.config {
             Some(path) => (Some(path.clone()), false),
@@ -44,15 +50,23 @@ fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<Co
             Some(path) => {
                 let text = std::fs::read_to_string(&path)
                     .with_context(|| format!("cannot read config file {}", path.display()))?;
-                (text, path.display().to_string(), discovered)
+                let config_dir = path
+                    .canonicalize()
+                    .unwrap_or_else(|_| path.clone())
+                    .parent()
+                    .map(Path::to_path_buf);
+                (text, path.display().to_string(), config_dir, discovered)
             }
-            None => (String::new(), "default config".to_string(), false),
+            None => (String::new(), "default config".to_string(), None, false),
         }
     };
     let mut table: toml::Table = text
         .parse()
         .with_context(|| format!("invalid TOML in {origin}"))?;
-    if discovered && table.contains_key("formatter-command") && !formatter_command_allowed(cli) {
+    if discovered
+        && pedantix::config::sets_formatter_command(&table)
+        && !formatter_command_allowed(cli)
+    {
         bail!(
             "{origin} sets `formatter-command`, which is not executed from auto-discovered \
              config files; rerun with --allow-formatter-command if you trust this repository, \
@@ -68,8 +82,30 @@ fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<Co
             eprintln!("{warning}");
         }
     }
-    let mut cfg = Config::from_table(table)
-        .with_context(|| format!("invalid configuration ({origin} plus --set options)"))?;
+    Ok(LoadedConfig {
+        table,
+        origin,
+        dir: config_dir,
+    })
+}
+
+fn match_path(file: &Path, config_dir: Option<&Path>) -> String {
+    let canonical = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
+    let relative = config_dir
+        .and_then(|dir| canonical.strip_prefix(dir).ok())
+        .unwrap_or(&canonical);
+    relative.to_string_lossy().into_owned()
+}
+
+fn config_for_file(cli: &Cli, loaded: &LoadedConfig, file: Option<&Path>) -> Result<Config> {
+    let path = file.map(|f| match_path(f, loaded.dir.as_deref()));
+    let mut cfg =
+        Config::from_table_for_file(loaded.table.clone(), path.as_deref()).with_context(|| {
+            format!(
+                "invalid configuration ({} plus --set options)",
+                loaded.origin
+            )
+        })?;
     if let Some(formatter) = cli.formatter {
         cfg.formatter = formatter;
         cfg.formatter_command = None;
@@ -92,7 +128,8 @@ fn run(cli: &Cli) -> Result<ExitCode> {
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        let cfg = load_config(cli, &dir, &mut HashSet::new())?;
+        let loaded = load_config(cli, &dir, &mut HashSet::new())?;
+        let cfg = config_for_file(cli, &loaded, cli.stdin_filepath.as_deref())?;
         let output = pipeline::process_file(&input, &cfg, cli.stdin_filepath.as_deref())?;
         if cli.check {
             return Ok(if output == input {
@@ -109,7 +146,7 @@ fn run(cli: &Cli) -> Result<ExitCode> {
 
     let mut would_change = false;
     let mut warned = HashSet::new();
-    let mut configs: HashMap<PathBuf, Config> = HashMap::new();
+    let mut configs: HashMap<PathBuf, LoadedConfig> = HashMap::new();
     for file in &cli.files {
         let input = std::fs::read_to_string(file)
             .with_context(|| format!("cannot read {}", file.display()))?;
@@ -118,14 +155,15 @@ fn run(cli: &Cli) -> Result<ExitCode> {
             .ok()
             .and_then(|p| p.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from("."));
-        let cfg = match configs.entry(dir) {
+        let loaded = match configs.entry(dir) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let cfg = load_config(cli, entry.key(), &mut warned)?;
-                entry.insert(cfg)
+                let loaded = load_config(cli, entry.key(), &mut warned)?;
+                entry.insert(loaded)
             }
         };
-        let output = pipeline::process_file(&input, cfg, Some(file))
+        let cfg = config_for_file(cli, loaded, Some(file))?;
+        let output = pipeline::process_file(&input, &cfg, Some(file))
             .with_context(|| format!("while formatting {}", file.display()))?;
         if output != input {
             if cli.check {

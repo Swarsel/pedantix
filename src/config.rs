@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -347,6 +347,67 @@ fn expand_preset(mut table: toml::Table) -> Result<toml::Table> {
     Ok(merged)
 }
 
+fn expand_files(mut table: toml::Table, file: Option<&str>) -> Result<toml::Table> {
+    let Some(files_value) = table.remove("files") else {
+        return Ok(table);
+    };
+    let toml::Value::Array(entries) = files_value else {
+        bail!("`files` must be an array of tables");
+    };
+    for entry in entries {
+        let toml::Value::Table(mut entry) = entry else {
+            bail!("`files` entries must be tables");
+        };
+        let pattern = entry
+            .remove("pattern")
+            .context("`files` entries require a `pattern` key")?;
+        let pattern = pattern
+            .as_str()
+            .context("`files` entries require `pattern` to be a string")?
+            .to_string();
+        if pattern
+            .strip_prefix("./")
+            .unwrap_or(&pattern)
+            .split('/')
+            .any(|c| c == "." || c == "..")
+        {
+            bail!(
+                "`files` pattern `{pattern}` contains a `.` or `..` component and can never \
+                 match; patterns match paths anywhere beneath the config file's directory (a \
+                 single leading `./` pins a pattern to that directory instead)"
+            );
+        }
+        let _: Config = expand_preset(entry.clone())
+            .and_then(|expanded| Ok(expanded.try_into()?))
+            .with_context(|| format!("invalid `files` entry for pattern `{pattern}`"))?;
+        if !file.is_some_and(|f| glob_match_file(&pattern, f)) {
+            continue;
+        }
+        let base_overrides = table.get("overrides").and_then(|v| v.as_array()).cloned();
+        let entry_overrides = entry.get("overrides").and_then(|v| v.as_array()).cloned();
+        table = merge_tables(table, entry);
+        if let (Some(mut combined), Some(from_entry)) = (base_overrides, entry_overrides) {
+            combined.extend(from_entry);
+            table.insert("overrides".into(), toml::Value::Array(combined));
+        }
+    }
+    Ok(table)
+}
+
+pub fn sets_formatter_command(table: &toml::Table) -> bool {
+    table.contains_key("formatter-command")
+        || table
+            .get("files")
+            .and_then(|v| v.as_array())
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry
+                        .as_table()
+                        .is_some_and(|t| t.contains_key("formatter-command"))
+                })
+            })
+}
+
 fn merge_tables(base: toml::Table, over: toml::Table) -> toml::Table {
     let mut out = base;
     for (key, over_value) in over {
@@ -363,7 +424,11 @@ fn merge_tables(base: toml::Table, over: toml::Table) -> toml::Table {
 
 impl Config {
     pub fn from_table(table: toml::Table) -> Result<Config> {
-        expand_preset(table)?
+        Config::from_table_for_file(table, None)
+    }
+
+    pub fn from_table_for_file(table: toml::Table, file: Option<&str>) -> Result<Config> {
+        expand_preset(expand_files(table, file)?)?
             .try_into()
             .context("invalid configuration")
     }
@@ -514,6 +579,25 @@ pub fn apply_set(table: &mut toml::Table, assignment: &str) -> Result<()> {
 }
 
 pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
+    let mut found = Vec::new();
+    collect_ignored(table, "", &mut found);
+    if let Some(toml::Value::Array(entries)) = table.get("files") {
+        for entry in entries {
+            let Some(entry) = entry.as_table() else {
+                continue;
+            };
+            let location = entry
+                .get("pattern")
+                .and_then(toml::Value::as_str)
+                .map(|p| format!(" in the `files` entry for `{p}`"))
+                .unwrap_or_default();
+            collect_ignored(entry, &location, &mut found);
+        }
+    }
+    found
+}
+
+fn collect_ignored(table: &toml::Table, location: &str, found: &mut Vec<String>) {
     const SECTIONS: &[&str] = &["args", "lets", "inherits", "lists"];
     const ATTRS_ONLY: &[&str] = &[
         "merge",
@@ -522,7 +606,6 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
         "blank-lines-mode",
         "blank-lines-depth",
     ];
-    let mut found = Vec::new();
     let mut check = |section: &str, rules: &toml::Table, context: &str| {
         for key in ATTRS_ONLY {
             if rules.contains_key(*key) {
@@ -540,7 +623,7 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
     };
     for section in SECTIONS {
         if let Some(toml::Value::Table(rules)) = table.get(*section) {
-            check(section, rules, "");
+            check(section, rules, location);
         }
     }
     if let Some(toml::Value::Array(overrides)) = table.get("overrides") {
@@ -551,8 +634,8 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
             let context = entry
                 .get("path")
                 .and_then(toml::Value::as_str)
-                .map(|p| format!(" in the override for `{p}`"))
-                .unwrap_or_default();
+                .map(|p| format!(" in the override for `{p}`{location}"))
+                .unwrap_or_else(|| location.to_string());
             for section in SECTIONS {
                 if let Some(toml::Value::Table(rules)) = entry.get(*section) {
                     check(section, rules, &context);
@@ -560,7 +643,41 @@ pub fn ignored_keys(table: &toml::Table) -> Vec<String> {
             }
         }
     }
-    found
+}
+
+fn glob_match_file(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = match pattern.strip_prefix("./") {
+        Some(anchored) => anchored.split('/').collect(),
+        None => ["**"].into_iter().chain(pattern.split('/')).collect(),
+    };
+    let path: Vec<&str> = path.split('/').collect();
+    file_glob(&pat, &path)
+}
+
+fn file_glob(pat: &[&str], path: &[&str]) -> bool {
+    match pat.first() {
+        None => path.is_empty(),
+        Some(&"**") => {
+            file_glob(&pat[1..], path) || (!path.is_empty() && file_glob(pat, &path[1..]))
+        }
+        Some(&p) => match path.first() {
+            Some(&c) if component_match(p.as_bytes(), c.as_bytes()) => {
+                file_glob(&pat[1..], &path[1..])
+            }
+            _ => false,
+        },
+    }
+}
+
+fn component_match(pat: &[u8], text: &[u8]) -> bool {
+    match pat.first() {
+        None => text.is_empty(),
+        Some(b'*') => {
+            component_match(&pat[1..], text)
+                || (!text.is_empty() && component_match(pat, &text[1..]))
+        }
+        Some(c) => text.first() == Some(c) && component_match(&pat[1..], &text[1..]),
+    }
 }
 
 fn glob_match_path(pattern: &str, path: &[String]) -> bool {
@@ -598,6 +715,140 @@ mod tests {
         assert!(glob_match_path("a.**.c", &path("a.c")));
         assert!(glob_match_path("a.**.c", &path("a.x.y.c")));
         assert!(!glob_match_path("**.d", &path("a.b.c")));
+    }
+
+    #[test]
+    fn file_glob_matching() {
+        assert!(glob_match_file("*.pkg.nix", "hello.pkg.nix"));
+        assert!(glob_match_file("*.pkg.nix", "pkgs/deep/hello.pkg.nix"));
+        assert!(!glob_match_file("*.pkg.nix", "hello.nix"));
+        assert!(!glob_match_file("*.pkg.nix", "pkg.nix"));
+        assert!(glob_match_file("hello.nix", "a/b/hello.nix"));
+        assert!(glob_match_file("pkgs/*.nix", "pkgs/hello.nix"));
+        assert!(glob_match_file("pkgs/*.nix", "deep/er/pkgs/hello.nix"));
+        assert!(!glob_match_file("pkgs/*.nix", "other/hello.nix"));
+        assert!(!glob_match_file("pkgs/*.nix", "pkgs/deep/hello.nix"));
+        assert!(glob_match_file("pkgs/**/*.nix", "pkgs/deep/er/hello.nix"));
+        assert!(glob_match_file("pkgs/**/*.nix", "pkgs/hello.nix"));
+        assert!(glob_match_file("by-name/**", "pkgs/by-name/he/hello.nix"));
+        assert!(!glob_match_file("pkgs/*.nix", "üñï/hello.nix"));
+        assert!(glob_match_file("*.nix", "üñï.nix"));
+        assert!(glob_match_file("./test.nix", "test.nix"));
+        assert!(!glob_match_file("./test.nix", "a/test.nix"));
+        assert!(glob_match_file("./*.nix", "test.nix"));
+        assert!(!glob_match_file("./*.nix", "a/test.nix"));
+        assert!(glob_match_file("./nested/*.nix", "nested/deep.nix"));
+        assert!(!glob_match_file("./nested/*.nix", "a/nested/deep.nix"));
+    }
+
+    #[test]
+    fn files_entries_layer_onto_matching_files() {
+        let table: toml::Table = r#"
+            preset = "nixos-module"
+            formatter = "alejandra"
+
+            [[overrides]]
+            path = "**.alias"
+            attrs.sort = false
+
+            [[files]]
+            pattern = "*.pkg.nix"
+            preset = "nixpkgs-package"
+
+            [[files]]
+            pattern = "*.pkg.nix"
+            attrs.first = ["version"]
+
+            [[files]]
+            pattern = "unrelated.nix"
+            formatter = "off"
+
+            [[files.overrides]]
+            path = "**.src"
+            attrs.sort = false
+        "#
+        .parse()
+        .unwrap();
+
+        let cfg = Config::from_table_for_file(table.clone(), Some("mod.nix")).unwrap();
+        assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
+        assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
+
+        let cfg = Config::from_table_for_file(table.clone(), Some("pkgs/hello.pkg.nix")).unwrap();
+        assert_eq!(cfg.args.first[0], "lib");
+        assert_eq!(cfg.attrs.first, vec!["version"]);
+        assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
+        let p = |s: &str| -> Vec<String> { s.split('.').map(String::from).collect() };
+        assert!(!cfg.rules_at(RuleKind::Attrs, &p("x.alias")).sort);
+        assert_eq!(cfg.rules_at(RuleKind::Attrs, &p("pkg.src")).first[0], "url");
+
+        let cfg = Config::from_table_for_file(table.clone(), Some("unrelated.nix")).unwrap();
+        assert_eq!(cfg.formatter, FormatterChoice::Off);
+        assert!(!cfg.rules_at(RuleKind::Attrs, &p("x.alias")).sort);
+        assert!(!cfg.rules_at(RuleKind::Attrs, &p("pkg.src")).sort);
+
+        let cfg = Config::from_table_for_file(table, None).unwrap();
+        assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
+    }
+
+    #[test]
+    fn files_entries_are_validated_even_without_a_match() {
+        let err = |toml: &str| Config::from_toml_str(toml).expect_err(toml).to_string();
+        assert!(err("files = 5").contains("array of tables"));
+        assert!(err("files = [5]").contains("must be tables"));
+        assert!(err("[[files]]\npreset = \"nixos-module\"").contains("`pattern`"));
+        assert!(err("[[files]]\npattern = 5").contains("`pattern`"));
+        assert!(
+            err("[[files]]\npattern = \"*.nix\"\npreset = \"nope\"")
+                .contains("invalid `files` entry for pattern `*.nix`")
+        );
+        assert!(
+            err("[[files]]\npattern = \"*.nix\"\nnot-a-key = true")
+                .contains("invalid `files` entry")
+        );
+        assert!(
+            err("[[files]]\npattern = \"a.nix\"\n[[files.files]]\npattern = \"b.nix\"")
+                .contains("invalid `files` entry")
+        );
+        assert!(err("[[files]]\npattern = \"../test.nix\"").contains("can never match"));
+        assert!(err("[[files]]\npattern = \"a/./test.nix\"").contains("can never match"));
+        assert!(err("[[files]]\npattern = \"././test.nix\"").contains("can never match"));
+    }
+
+    #[test]
+    fn formatter_command_is_detected_inside_files_entries() {
+        let top: toml::Table = "formatter-command = [\"cat\"]".parse().unwrap();
+        assert!(sets_formatter_command(&top));
+        let nested: toml::Table = "[[files]]\npattern = \"*.nix\"\nformatter-command = [\"cat\"]\n"
+            .parse()
+            .unwrap();
+        assert!(sets_formatter_command(&nested));
+        assert!(!sets_formatter_command(
+            &"formatter = \"off\"".parse().unwrap()
+        ));
+    }
+
+    #[test]
+    fn ignored_keys_are_reported_inside_files_entries() {
+        let table: toml::Table = r#"
+            [[files]]
+            pattern = "*.pkg.nix"
+            args.blank-lines = 1
+
+            [[files.overrides]]
+            path = "**.xs"
+            lists.merge = true
+        "#
+        .parse()
+        .unwrap();
+        let found = ignored_keys(&table);
+        assert_eq!(found.len(), 2);
+        assert!(found[0].contains("`args.blank-lines`"));
+        assert!(found[0].contains("in the `files` entry for `*.pkg.nix`"));
+        assert!(found[1].contains("`lists.merge`"));
+        assert!(
+            found[1].contains("in the override for `**.xs` in the `files` entry for `*.pkg.nix`")
+        );
     }
 
     #[test]

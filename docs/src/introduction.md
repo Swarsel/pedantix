@@ -18,7 +18,7 @@ Off by default:
 - flattening of attribute sets with a single entry
 - (un-)quoting of attribute names
 - enforcing of blank lines in between attribute sets
-- overrides for arbitrary attribute paths
+- overrides for arbitrary attribute/file paths
 
 Comment blocks stay attached to their belonging configuration (mostly! - see [How it Works](how-it-works.md#comments)).
 

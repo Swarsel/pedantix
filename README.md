@@ -17,7 +17,7 @@ Here are some of its features (everything is optional):
 - flattening of attribute sets with a single entry
 - (un-)quoting of (valid) identifiers
 - enforcing of blank lines in between attribute sets
-- overrides for arbitrary attribute paths
+- overrides for arbitrary attribute/file paths
 
 ## Try it now
 
