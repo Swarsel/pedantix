@@ -61,7 +61,7 @@ Each file configuration can take a full configuration using all other options (e
 
 ### Precedence
 
-The configuration will first source the entries' `preset` (overriding the top-level preset, and if not given using that one), then layer on top the top-level keys, and finally override them with the entries' keys.
+A matching entry layers on top of the top-level configuration, first it's preset and then any further config - when an entry sets a `preset`, the top-level `preset` is ignored entirely for that file.
 
 As for `[[overrides]]`, the entries' overrides are applied after the top-level ones (so the most specific entry wins).
 

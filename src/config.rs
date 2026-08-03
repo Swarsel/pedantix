@@ -377,11 +377,16 @@ fn expand_files(mut table: toml::Table, file: Option<&str>) -> Result<toml::Tabl
                  single leading `./` pins a pattern to that directory instead)"
             );
         }
-        expand_preset(entry.clone())
-            .and_then(Config::try_validated)
+        let has_preset = entry.contains_key("preset");
+        let entry = expand_preset(entry)
+            .with_context(|| format!("invalid `files` entry for pattern `{pattern}`"))?;
+        Config::try_validated(entry.clone())
             .with_context(|| format!("invalid `files` entry for pattern `{pattern}`"))?;
         if !file.is_some_and(|f| glob_match_file(&pattern, f)) {
             continue;
+        }
+        if has_preset {
+            table.remove("preset");
         }
         let base_overrides = table.get("overrides").and_then(|v| v.as_array()).cloned();
         let entry_overrides = entry.get("overrides").and_then(|v| v.as_array()).cloned();
@@ -845,6 +850,57 @@ mod tests {
 
         let cfg = Config::from_table_for_file(table, None, &[]).unwrap();
         assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
+    }
+
+    #[test]
+    fn files_presets_override_root_config() {
+        let table: toml::Table = r#"
+            [args]
+            first = ["lib", "config", "pkgs", "inputs", "inputs'", "self", "self'"]
+            last = ["<defaulted>", "..."]
+
+            [lets]
+            sort = true
+
+            [attrs]
+            first = ["flake-file", "imports", "perSystem"]
+            flatten = true
+            merge = true
+
+            [[files]]
+            pattern = "**/*.pkg.nix"
+            preset = "nixpkgs-package"
+        "#
+        .parse()
+        .unwrap();
+
+        let cfg =
+            Config::from_table_for_file(table.clone(), Some("pkgs/foo.pkg.nix"), &[]).unwrap();
+        assert_eq!(cfg.attrs.first[..2], ["pname", "version"]);
+        assert_eq!(cfg.args.first[..2], ["lib", "stdenv"]);
+        assert!(cfg.lets.sort);
+        assert!(cfg.attrs.flatten);
+        let p = |s: &str| -> Vec<String> { s.split('.').map(String::from).collect() };
+        assert_eq!(cfg.rules_at(RuleKind::Attrs, &p("pkg.src")).first[0], "url");
+
+        let cfg = Config::from_table_for_file(table, Some("flake.nix"), &[]).unwrap();
+        assert_eq!(cfg.attrs.first[0], "flake-file");
+    }
+
+    #[test]
+    fn files_presets_replace_the_root_preset() {
+        let table: toml::Table = r#"
+            preset = "nixos-module"
+
+            [[files]]
+            pattern = "*.pkg.nix"
+            preset = "alphabetical"
+        "#
+        .parse()
+        .unwrap();
+        let cfg = Config::from_table_for_file(table, Some("foo.pkg.nix"), &[]).unwrap();
+        assert!(cfg.attrs.sort);
+        assert!(cfg.attrs.first.is_empty(), "root preset must be ignored");
     }
 
     #[test]
