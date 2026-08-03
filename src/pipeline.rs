@@ -27,16 +27,7 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
     };
     let sorted = crate::sort::sort_source(&merged, cfg)?;
     let changed = sorted != formatted;
-    if changed {
-        crate::semantic::check_same_content(
-            &formatted,
-            &sorted,
-            cfg.lists_may_sort(),
-            restructures,
-            restyles,
-        )?;
-    }
-    let output = if cfg.format_after_sort && (changed || !cfg.format_before_sort) {
+    let formatted_after = if cfg.format_after_sort && (changed || !cfg.format_before_sort) {
         crate::base::run_base_formatter(cfg, &sorted).context("base formatter (after sort)")?
     } else {
         sorted
@@ -44,5 +35,15 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
     let is_flake = path
         .and_then(Path::file_name)
         .is_some_and(|name| name == "flake.nix");
-    crate::spacing::space_top_level(&output, cfg, is_flake)
+    let output = crate::spacing::space_top_level(&formatted_after, cfg, is_flake)?;
+    if output != input {
+        crate::semantic::check_same_content(
+            input,
+            &output,
+            cfg.lists_may_sort(),
+            restructures,
+            restyles,
+        )?;
+    }
+    Ok(output)
 }

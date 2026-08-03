@@ -476,13 +476,14 @@ where
     let order = changed_order(&items)?;
     let single_line = !is_multiline(node) && !has_comments(&items, &dangling);
     let sep = item_sep(&items, src, single_line);
+    let trailing_comma = comma && has_trailing_comma(node, src);
     let mut out = String::from(open);
     out.push_str(&sep);
     let blocks: Vec<String> = order
         .iter()
         .enumerate()
         .map(|(pos, &i)| {
-            let suffix = if comma && pos + 1 < order.len() {
+            let suffix = if comma && (pos + 1 < order.len() || trailing_comma) {
                 ","
             } else {
                 ""
@@ -504,6 +505,15 @@ where
         out.push(close);
     }
     Some(out)
+}
+
+fn has_trailing_comma(node: Node, src: &str) -> bool {
+    let mut cursor = node.walk();
+    let inner: Vec<Node> = node
+        .children(&mut cursor)
+        .filter(|c| c.kind() != "comment" && !matches!(text(*c, src), "{" | "}"))
+        .collect();
+    inner.last().is_some_and(|c| c.kind() == ",")
 }
 
 fn sort_formals(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
@@ -736,6 +746,18 @@ mod tests {
         "#);
         let out = sorted("{\n  pkgs,\n  minimal,\n  lib,\n  ...\n}:\n{\n}\n", &config);
         assert_eq!(out, "{\n  lib,\n  pkgs,\n  minimal,\n  ...\n}:\n{\n}\n");
+    }
+
+    #[test]
+    fn formals_keep_the_trailing_comma_they_came_with() {
+        let out = sorted("{\n  b,\n  a,\n}:\na\n", &Config::default());
+        assert_eq!(out, "{\n  a,\n  b,\n}:\na\n");
+        let out = sorted("{\n  b,\n  a\n}:\na\n", &Config::default());
+        assert_eq!(out, "{\n  a,\n  b\n}:\na\n");
+        let out = sorted("{ b, a }:\na\n", &Config::default());
+        assert_eq!(out, "{ a, b }:\na\n");
+        let out = sorted("{\n  b,\n  a,\n  ...\n}:\na\n", &Config::default());
+        assert_eq!(out, "{\n  a,\n  b,\n  ...\n}:\na\n");
     }
 
     #[test]
