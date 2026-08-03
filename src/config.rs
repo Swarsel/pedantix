@@ -524,7 +524,11 @@ impl Config {
     }
 
     pub fn lists_may_sort(&self) -> bool {
-        self.lists.sort || self.overrides.iter().any(|o| o.lists.is_some())
+        self.lists.sort
+            || self
+                .overrides
+                .iter()
+                .any(|o| o.lists.as_ref().is_some_and(|l| l.sort == Some(true)))
     }
 
     pub fn blank_lines_may_apply(&self) -> bool {
@@ -1146,6 +1150,12 @@ mod tests {
         let cfg: Config =
             toml::from_str("[[overrides]]\npath = \"**.xs\"\nlists.sort = true").unwrap();
         assert!(cfg.lists_may_sort());
+        let cfg: Config =
+            toml::from_str("[[overrides]]\npath = \"**.xs\"\nlists.first = [\"z\"]").unwrap();
+        assert!(!cfg.lists_may_sort());
+        let cfg: Config =
+            toml::from_str("[[overrides]]\npath = \"**.xs\"\nlists.sort = false").unwrap();
+        assert!(!cfg.lists_may_sort());
     }
 
     #[test]
