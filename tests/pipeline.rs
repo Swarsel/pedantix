@@ -275,36 +275,60 @@ fn formatter_command_is_used_and_failures_are_reported() {
 }
 
 #[test]
+fn a_base_formatter_that_changes_content_is_refused() {
+    let src = "{ b = 1; a = 2; }\n";
+    let truncating = Config {
+        formatter_command: Some(vec![
+            "sh".into(),
+            "-c".into(),
+            "head -c 4 >/dev/null; printf '{ }\\n'".into(),
+        ]),
+        ..Config::default()
+    };
+    let err = format!("{:#}", process(src, &truncating).unwrap_err());
+    assert!(
+        err.contains("would have changed the file's content"),
+        "{err}"
+    );
+
+    let after_only = Config {
+        format_before_sort: false,
+        formatter_command: Some(vec![
+            "sh".into(),
+            "-c".into(),
+            "cat >/dev/null; printf '{ zzz = 9; }\\n'".into(),
+        ]),
+        ..Config::default()
+    };
+    let err = format!("{:#}", process(src, &after_only).unwrap_err());
+    assert!(
+        err.contains("would have changed the file's content"),
+        "{err}"
+    );
+}
+
+#[test]
 fn format_passes_can_be_disabled() {
     let base = Config {
-        formatter_command: Some(vec!["sed".into(), "1s/^/# marked\\n/".into()]),
+        formatter_command: Some(vec!["sed".into(), "s/$/ /".into()]),
         ..Config::default()
     };
     let src = "{ b = 1; a = 2; }\n";
-    assert_eq!(
-        process(src, &base).unwrap(),
-        "# marked\n# marked\n{ a = 2; b = 1; }\n"
-    );
+    assert_eq!(process(src, &base).unwrap(), "{ a = 2; b = 1; }  \n");
     assert_eq!(
         process("{ a = 2; b = 1; }\n", &base).unwrap(),
-        "# marked\n{ a = 2; b = 1; }\n"
+        "{ a = 2; b = 1; } \n"
     );
     let no_before = Config {
         format_before_sort: false,
         ..base.clone()
     };
-    assert_eq!(
-        process(src, &no_before).unwrap(),
-        "# marked\n{ a = 2; b = 1; }\n"
-    );
+    assert_eq!(process(src, &no_before).unwrap(), "{ a = 2; b = 1; } \n");
     let no_after = Config {
         format_after_sort: false,
         ..base.clone()
     };
-    assert_eq!(
-        process(src, &no_after).unwrap(),
-        "# marked\n{ a = 2; b = 1; }\n"
-    );
+    assert_eq!(process(src, &no_after).unwrap(), "{ a = 2; b = 1; } \n");
     let neither = Config {
         format_before_sort: false,
         format_after_sort: false,
