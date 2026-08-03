@@ -166,6 +166,87 @@ fn files_entries_configure_matching_files() {
 }
 
 #[test]
+fn set_formatter_command_wins_over_files_entries() {
+    let dir = temp_dir("set-vs-files");
+    std::fs::write(
+        dir.join("pedantix.toml"),
+        "formatter = \"off\"\n\n[[files]]\npattern = \"*.nix\"\nformatter-command = [\"false\"]\n",
+    )
+    .unwrap();
+    let file = dir.join("f.nix");
+    std::fs::write(&file, "{ b = 1; a = 2; }\n").unwrap();
+    let file = file.to_str().unwrap();
+
+    let out = pedantix(&["--set", r#"formatter-command=["cat"]"#, file], None);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(file).unwrap(),
+        "{ a = 2; b = 1; }\n"
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn set_can_add_files_entries() {
+    let dir = temp_dir("set-files-entry");
+    std::fs::write(dir.join("pedantix.toml"), "formatter = \"off\"\n").unwrap();
+    let file = dir.join("f.nix");
+    std::fs::write(&file, "{ b = 1; a = 2; }\n").unwrap();
+    let file = file.to_str().unwrap();
+
+    let out = pedantix(
+        &[
+            "--set",
+            r#"files=[{pattern="*.nix", attrs.sort=false}]"#,
+            file,
+        ],
+        None,
+    );
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(file).unwrap(),
+        "{ b = 1; a = 2; }\n"
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn files_patterns_without_a_config_file_match_below_the_working_directory() {
+    let dir = temp_dir("cwd-patterns");
+    std::fs::create_dir_all(dir.join("pkgs")).unwrap();
+    let top = dir.join("top.nix");
+    let nested = dir.join("pkgs").join("nested.nix");
+    for file in [&top, &nested] {
+        std::fs::write(file, "{ b = 1; a = 2; }\n").unwrap();
+    }
+
+    let out = Command::new(env!("CARGO_BIN_EXE_pedantix"))
+        .current_dir(&dir)
+        .args([
+            "--config-toml",
+            "formatter = \"off\"\n\n[[files]]\npattern = \"./*.nix\"\nattrs.sort = false\n",
+            "top.nix",
+            "pkgs/nested.nix",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&top).unwrap(),
+        "{ b = 1; a = 2; }\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&nested).unwrap(),
+        "{ a = 2; b = 1; }\n"
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn files_entry_formatter_command_is_not_executed_from_discovered_config() {
     let dir = temp_dir("per-file-untrusted");
     std::fs::write(
