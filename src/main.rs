@@ -35,9 +35,19 @@ struct LoadedConfig {
     dir: Option<PathBuf>,
 }
 
+fn base_dir() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    Some(cwd.canonicalize().unwrap_or(cwd))
+}
+
 fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<LoadedConfig> {
     let (text, origin, config_dir, discovered) = if let Some(inline) = &cli.config_toml {
-        (inline.clone(), "--config-toml".to_string(), None, false)
+        (
+            inline.clone(),
+            "--config-toml".to_string(),
+            base_dir(),
+            false,
+        )
     } else {
         let (path, discovered) = match &cli.config {
             Some(path) => (Some(path.clone()), false),
@@ -57,7 +67,12 @@ fn load_config(cli: &Cli, dir: &Path, warned: &mut HashSet<String>) -> Result<Lo
                     .map(Path::to_path_buf);
                 (text, path.display().to_string(), config_dir, discovered)
             }
-            None => (String::new(), "default config".to_string(), None, false),
+            None => (
+                String::new(),
+                "default config".to_string(),
+                base_dir(),
+                false,
+            ),
         }
     };
     let mut table: toml::Table = text
@@ -99,8 +114,8 @@ fn match_path(file: &Path, config_dir: Option<&Path>) -> String {
 
 fn config_for_file(cli: &Cli, loaded: &LoadedConfig, file: Option<&Path>) -> Result<Config> {
     let path = file.map(|f| match_path(f, loaded.dir.as_deref()));
-    let mut cfg =
-        Config::from_table_for_file(loaded.table.clone(), path.as_deref()).with_context(|| {
+    let mut cfg = Config::from_table_for_file(loaded.table.clone(), path.as_deref(), &cli.set)
+        .with_context(|| {
             format!(
                 "invalid configuration ({} plus --set options)",
                 loaded.origin

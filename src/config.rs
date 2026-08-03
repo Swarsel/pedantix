@@ -424,11 +424,25 @@ fn merge_tables(base: toml::Table, over: toml::Table) -> toml::Table {
 
 impl Config {
     pub fn from_table(table: toml::Table) -> Result<Config> {
-        Config::from_table_for_file(table, None)
+        Config::from_table_for_file(table, None, &[])
     }
 
-    pub fn from_table_for_file(table: toml::Table, file: Option<&str>) -> Result<Config> {
-        Config::try_validated(expand_preset(expand_files(table, file)?)?)
+    pub fn from_table_for_file(
+        table: toml::Table,
+        file: Option<&str>,
+        sets: &[String],
+    ) -> Result<Config> {
+        let mut table = expand_files(table, file)?;
+        for assignment in sets {
+            if assignment
+                .split_once('=')
+                .is_some_and(|(k, _)| k.trim().split('.').next() == Some("files"))
+            {
+                continue;
+            }
+            apply_set(&mut table, assignment)?;
+        }
+        Config::try_validated(expand_preset(table)?)
     }
 
     fn try_validated(table: toml::Table) -> Result<Config> {
@@ -807,11 +821,12 @@ mod tests {
         .parse()
         .unwrap();
 
-        let cfg = Config::from_table_for_file(table.clone(), Some("mod.nix")).unwrap();
+        let cfg = Config::from_table_for_file(table.clone(), Some("mod.nix"), &[]).unwrap();
         assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
         assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
 
-        let cfg = Config::from_table_for_file(table.clone(), Some("pkgs/hello.pkg.nix")).unwrap();
+        let cfg =
+            Config::from_table_for_file(table.clone(), Some("pkgs/hello.pkg.nix"), &[]).unwrap();
         assert_eq!(cfg.args.first[0], "lib");
         assert_eq!(cfg.attrs.first, vec!["version"]);
         assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
@@ -819,13 +834,39 @@ mod tests {
         assert!(!cfg.rules_at(RuleKind::Attrs, &p("x.alias")).sort);
         assert_eq!(cfg.rules_at(RuleKind::Attrs, &p("pkg.src")).first[0], "url");
 
-        let cfg = Config::from_table_for_file(table.clone(), Some("unrelated.nix")).unwrap();
+        let cfg = Config::from_table_for_file(table.clone(), Some("unrelated.nix"), &[]).unwrap();
         assert_eq!(cfg.formatter, FormatterChoice::Off);
         assert!(!cfg.rules_at(RuleKind::Attrs, &p("x.alias")).sort);
         assert!(!cfg.rules_at(RuleKind::Attrs, &p("pkg.src")).sort);
 
-        let cfg = Config::from_table_for_file(table, None).unwrap();
+        let cfg = Config::from_table_for_file(table, None, &[]).unwrap();
         assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
+    }
+
+    #[test]
+    fn set_assignments_win_over_files_entries() {
+        let table: toml::Table = r#"
+            formatter-command = ["repo"]
+
+            [[files]]
+            pattern = "*.nix"
+            attrs.sort = false
+            formatter = "alejandra"
+            formatter-command = ["entry"]
+        "#
+        .parse()
+        .unwrap();
+        let sets = [
+            "attrs.sort=true".to_string(),
+            r#"formatter-command=["mine"]"#.to_string(),
+        ];
+        let cfg = Config::from_table_for_file(table.clone(), Some("a.nix"), &sets).unwrap();
+        assert!(cfg.attrs.sort);
+        assert_eq!(cfg.formatter_command, Some(vec!["mine".to_string()]));
+        assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
+        let cfg = Config::from_table_for_file(table, Some("a.nix"), &[]).unwrap();
+        assert!(!cfg.attrs.sort);
+        assert_eq!(cfg.formatter_command, Some(vec!["entry".to_string()]));
     }
 
     #[test]
