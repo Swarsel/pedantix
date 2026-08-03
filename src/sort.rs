@@ -453,10 +453,26 @@ fn render_sorted(
     src: &str,
     path: &mut Vec<String>,
     cfg: &Config,
+    collected: (Vec<Item>, Vec<Node>),
+    delimiters: (char, char),
+    comma: bool,
+) -> Option<String> {
+    render_sorted_with(node, src, collected, delimiters, comma, |item, sep, sfx| {
+        render_item(item, src, path, cfg, sep, sfx)
+    })
+}
+
+fn render_sorted_with<F>(
+    node: Node,
+    src: &str,
     (items, dangling): (Vec<Item>, Vec<Node>),
     (open, close): (char, char),
     comma: bool,
-) -> Option<String> {
+    mut render: F,
+) -> Option<String>
+where
+    F: FnMut(&Item, &str, &str) -> String,
+{
     let order = changed_order(&items)?;
     let single_line = !is_multiline(node) && !has_comments(&items, &dangling);
     let sep = item_sep(&items, src, single_line);
@@ -471,7 +487,7 @@ fn render_sorted(
             } else {
                 ""
             };
-            render_item(&items[i], src, path, cfg, &sep, suffix)
+            render(&items[i], &sep, suffix)
         })
         .collect();
     out.push_str(&blocks.join(&sep));
@@ -551,19 +567,38 @@ fn sort_list(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Opt
         .children(&mut cursor)
         .filter(|c| c.is_named())
         .collect();
-    render_sorted(
-        node,
-        src,
-        path,
-        cfg,
-        collect_items(children, |child| {
-            let key = normalize_key(child, src);
-            ranked_key(&key, vec![key.clone()], &rules)
-        }),
-        ('[', ']'),
-        false,
-    )
+    let mut rewritten: Vec<(usize, String)> = Vec::new();
+    let collected = collect_items(children, |child| {
+        let key = match rewrite(child, src, path, cfg) {
+            Some(text) => {
+                let key = normalize_rewritten_key(child, &text);
+                rewritten.push((child.id(), text));
+                key
+            }
+            None => normalize_key(child, src),
+        };
+        ranked_key(&key, vec![key.clone()], &rules)
+    });
+    render_sorted_with(node, src, collected, ('[', ']'), false, |item, sep, sfx| {
+        render_item_with(item, src, sep, sfx, |n| {
+            rewritten
+                .iter()
+                .find(|(id, _)| *id == n.id())
+                .map(|(_, text)| text.clone())
+        })
+    })
     .or_else(|| splice_children(node, src, path, cfg))
+}
+
+fn normalize_rewritten_key(node: Node, rewritten: &str) -> String {
+    if node.kind() == "string_expression"
+        && let Some(inner) = rewritten
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+    {
+        return inner.to_string();
+    }
+    rewritten.to_string()
 }
 
 fn sort_inherited_attrs(
@@ -866,6 +901,15 @@ mod tests {
             sorted(src, &config),
             "{\n  xs = [\n    \"a\"\n    \"b\"\n    \"c\"\n  ];\n}\n"
         );
+    }
+
+    #[test]
+    fn lists_are_keyed_by_their_rewritten_elements() {
+        let config = cfg("[lists]\nsort = true\n");
+        let src = "{ xs = [ { b = 1; a = 2; } { a = 2; c = 1; } ]; }\n";
+        let once = sorted(src, &config);
+        assert_eq!(once, "{ xs = [ { a = 2; b = 1; } { a = 2; c = 1; } ]; }\n");
+        assert_eq!(sorted(&once, &config), once);
     }
 
     #[test]
