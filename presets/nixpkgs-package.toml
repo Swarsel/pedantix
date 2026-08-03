@@ -6,6 +6,7 @@ last = ["<defaulted>", "..."]
 
 [attrs]
 first = [
+  "name",
   "pname",
   "version",
   "src",
