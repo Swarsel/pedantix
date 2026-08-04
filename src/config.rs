@@ -745,7 +745,7 @@ mod tests {
             assert!(cfg.args.sort, "preset {name} should keep args sorting on");
         }
         let cfg = Config::from_toml_str("preset = \"nixpkgs-package\"").unwrap();
-        assert_eq!(cfg.attrs.first[0], "pname");
+        assert_eq!(cfg.attrs.first[0], "name");
         assert_eq!(cfg.attrs.last, vec!["passthru", "meta"]);
         assert_eq!(cfg.args.first[0], "lib");
         assert!(cfg.overrides.iter().any(|o| o.path == "**.src"));
@@ -781,7 +781,7 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.formatter, FormatterChoice::Alejandra);
         assert_eq!(cfg.args.first, vec!["mine"]);
-        assert_eq!(cfg.attrs.first[0], "pname");
+        assert_eq!(cfg.attrs.first[0], "name");
         let src_overrides: Vec<_> = cfg
             .overrides
             .iter()
