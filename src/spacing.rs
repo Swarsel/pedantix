@@ -164,8 +164,13 @@ impl Spacer<'_> {
                     }
                     BlankLinesMode::Off => unreachable!("checked above"),
                 };
+                let eol = if gap[..last_newline].ends_with('\r') {
+                    "\r\n"
+                } else {
+                    "\n"
+                };
                 let replacement =
-                    format!("{}{}", "\n".repeat(gap_lines + 1), &gap[last_newline + 1..]);
+                    format!("{}{}", eol.repeat(gap_lines + 1), &gap[last_newline + 1..]);
                 self.edits.push((prev_end, next_start, replacement));
             }
         }
@@ -256,6 +261,25 @@ mod tests {
     fn zero_removes_blank_lines() {
         let out = spaced("{\n  a = 1;\n\n  b = {\n    x = 1;\n  };\n}\n", &cfg(0));
         assert_eq!(out, "{\n  a = 1;\n  b = {\n    x = 1;\n  };\n}\n");
+    }
+
+    #[test]
+    fn crlf_line_endings_survive_spacing() {
+        let src = "{\r\n  a = 1;\r\n  b = {\r\n    x = 1;\r\n  };\r\n}\r\n";
+        assert_eq!(
+            spaced(src, &cfg(1)),
+            "{\r\n  a = 1;\r\n\r\n  b = {\r\n    x = 1;\r\n  };\r\n}\r\n"
+        );
+        let blanked = "{\r\n  a = 1;\r\n\r\n  b = {\r\n    x = 1;\r\n  };\r\n}\r\n";
+        assert_eq!(
+            spaced(blanked, &cfg(0)),
+            "{\r\n  a = 1;\r\n  b = {\r\n    x = 1;\r\n  };\r\n}\r\n"
+        );
+        let lf = "{\n  a = 1;\n  b = {\n    x = 1;\n  };\n}\n";
+        assert_eq!(
+            spaced(lf, &cfg(1)),
+            "{\n  a = 1;\n\n  b = {\n    x = 1;\n  };\n}\n"
+        );
     }
 
     #[test]
