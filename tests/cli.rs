@@ -100,6 +100,34 @@ fn file_mode_formats_in_place_with_discovered_config() {
 }
 
 #[test]
+fn warnings_are_not_repeated_for_each_directory() {
+    let dir = temp_dir("warn-dedup");
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(
+        dir.join("pedantix.toml"),
+        "formatter = \"off\"\n\n[lets]\nmerge = true\n",
+    )
+    .unwrap();
+    let top = dir.join("top.nix");
+    let nested = dir.join("sub").join("nested.nix");
+    for file in [&top, &nested] {
+        std::fs::write(file, "{ b = 1; a = 2; }\n").unwrap();
+    }
+
+    let out = pedantix(&[top.to_str().unwrap(), nested.to_str().unwrap()], None);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let errs = stderr(&out);
+    assert_eq!(
+        errs.matches("`lets.merge` has no effect").count(),
+        1,
+        "{errs}"
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn stdin_filepath_selects_config_and_flake_spacing() {
     let dir = temp_dir("flake");
     std::fs::write(
@@ -161,6 +189,69 @@ fn files_entries_configure_matching_files() {
         Some("{ b = 1; a = 2; }\n"),
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn check_mode_skips_files_a_files_entry_exempts() {
+    let dir = temp_dir("check-per-file");
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(
+        dir.join("pedantix.toml"),
+        "formatter = \"off\"\n\n[[files]]\npattern = \"*.pkg.nix\"\nattrs.sort = false\n",
+    )
+    .unwrap();
+    let module = dir.join("module.nix");
+    let package = dir.join("hello.pkg.nix");
+    for file in [&module, &package] {
+        std::fs::write(file, "{ b = 1; a = 2; }\n").unwrap();
+    }
+
+    let out = pedantix(
+        &[
+            "--check",
+            module.to_str().unwrap(),
+            package.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let errs = stderr(&out);
+    assert!(errs.contains("would reformat: "), "{errs}");
+    assert!(errs.contains("module.nix"), "{errs}");
+    assert!(!errs.contains("hello.pkg.nix"), "{errs}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn each_directory_uses_its_own_discovered_config() {
+    let dir = temp_dir("multi-dir");
+    std::fs::create_dir_all(dir.join("a").join(".git")).unwrap();
+    std::fs::create_dir_all(dir.join("b").join(".git")).unwrap();
+    std::fs::write(dir.join("a").join("pedantix.toml"), "formatter = \"off\"\n").unwrap();
+    std::fs::write(
+        dir.join("b").join("pedantix.toml"),
+        "formatter = \"off\"\n\n[attrs]\nsort = false\n",
+    )
+    .unwrap();
+    let sorted = dir.join("a").join("f.nix");
+    let kept = dir.join("b").join("f.nix");
+    for file in [&sorted, &kept] {
+        std::fs::write(file, "{ b = 1; a = 2; }\n").unwrap();
+    }
+
+    let out = pedantix(&[sorted.to_str().unwrap(), kept.to_str().unwrap()], None);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&sorted).unwrap(),
+        "{ a = 2; b = 1; }\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&kept).unwrap(),
+        "{ b = 1; a = 2; }\n"
+    );
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
