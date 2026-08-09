@@ -58,21 +58,7 @@ impl Spacer<'_> {
             "attrset_expression" | "rec_attrset_expression" | "let_attrset_expression" => {
                 self.space_container(node, path, root, inherited);
             }
-            "binding" => {
-                let expr_id = node.child_by_field_name("expression").map(|b| b.id());
-                let comps = binding_components(node, self.src);
-                let mut cursor = node.walk();
-                for child in node.named_children(&mut cursor) {
-                    if Some(child.id()) == expr_id {
-                        let depth = path.len();
-                        path.extend(comps.iter().cloned());
-                        self.walk(child, path, None, None);
-                        path.truncate(depth);
-                    } else {
-                        self.walk(child, path, None, None);
-                    }
-                }
-            }
+            "binding" => self.walk_binding(node, path, None, None),
             "source_code" | "parenthesized_expression" => {
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
@@ -96,6 +82,28 @@ impl Spacer<'_> {
                 for child in node.named_children(&mut cursor) {
                     self.walk(child, path, None, None);
                 }
+            }
+        }
+    }
+
+    fn walk_binding(
+        &mut self,
+        node: Node,
+        path: &mut Vec<String>,
+        root: Option<usize>,
+        inherited: Option<Inherited>,
+    ) {
+        let expr_id = node.child_by_field_name("expression").map(|e| e.id());
+        let comps = binding_components(node, self.src);
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if Some(child.id()) == expr_id {
+                let depth = path.len();
+                path.extend(comps.iter().cloned());
+                self.walk(child, path, root, inherited);
+                path.truncate(depth);
+            } else {
+                self.walk(child, path, None, None);
             }
         }
     }
@@ -190,13 +198,7 @@ impl Spacer<'_> {
                     (depth < self.cfg.top_level_blank_lines_depth).then_some(depth + 1)
                 })
             };
-            let Some(value) = item.node.child_by_field_name("expression") else {
-                continue;
-            };
-            let depth = path.len();
-            path.extend(comps);
-            self.walk(value, path, child_root, child_inherited);
-            path.truncate(depth);
+            self.walk_binding(item.node, path, child_root, child_inherited);
         }
     }
 }
@@ -261,6 +263,25 @@ mod tests {
     fn zero_removes_blank_lines() {
         let out = spaced("{\n  a = 1;\n\n  b = {\n    x = 1;\n  };\n}\n", &cfg(0));
         assert_eq!(out, "{\n  a = 1;\n  b = {\n    x = 1;\n  };\n}\n");
+    }
+
+    #[test]
+    fn dynamic_attrpaths_are_spaced_like_let_bindings() {
+        let body = "${f {\n    aa = {\n      p = 2;\n    };\n\n    bb = 1;\n  }} = 1;";
+        let src = |open: &str, close: &str| {
+            format!(
+                "{open}\n  ${{f {{\n    aa = {{\n      p = 2;\n    }};\n    bb = 1;\n  }}}} = 1;\n{close}\n"
+            )
+        };
+        let config: Config = toml::from_str("[attrs]\nblank-lines = 1\n").unwrap();
+        assert_eq!(
+            spaced(&src("{", "}"), &config),
+            format!("{{\n  {body}\n}}\n")
+        );
+        assert_eq!(
+            spaced(&src("let", "in 1"), &config),
+            format!("let\n  {body}\nin 1\n")
+        );
     }
 
     #[test]
