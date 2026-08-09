@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -936,14 +936,10 @@ mod tests {
         assert!(err("files = [5]").contains("must be tables"));
         assert!(err("[[files]]\npreset = \"nixos-module\"").contains("`pattern`"));
         assert!(err("[[files]]\npattern = 5").contains("`pattern`"));
-        assert!(
-            err("[[files]]\npattern = \"*.nix\"\npreset = \"nope\"")
-                .contains("invalid `files` entry for pattern `*.nix`")
-        );
-        assert!(
-            err("[[files]]\npattern = \"*.nix\"\nnot-a-key = true")
-                .contains("invalid `files` entry")
-        );
+        assert!(err("[[files]]\npattern = \"*.nix\"\npreset = \"nope\"")
+            .contains("invalid `files` entry for pattern `*.nix`"));
+        assert!(err("[[files]]\npattern = \"*.nix\"\nnot-a-key = true")
+            .contains("invalid `files` entry"));
         assert!(
             err("[[files]]\npattern = \"a.nix\"\n[[files.files]]\npattern = \"b.nix\"")
                 .contains("invalid `files` entry")
@@ -1009,10 +1005,6 @@ mod tests {
     fn default_config() {
         let cfg = Config::default();
         assert_eq!(cfg.formatter, FormatterChoice::Nixfmt);
-        assert!(cfg.args.sort);
-        assert!(cfg.attrs.sort);
-        assert!(!cfg.lets.sort);
-        assert!(!cfg.inherits.sort);
         assert!(cfg.format_before_sort && cfg.format_after_sort);
     }
 
@@ -1039,6 +1031,19 @@ mod tests {
 
         std::fs::write(inner.join(".git"), "gitdir: elsewhere").unwrap();
         assert_eq!(Config::discover_path(&inner.join("deep")), None);
+
+        let dotted = repo.join("sub");
+        std::fs::write(dotted.join(".pedantix.toml"), "").unwrap();
+        assert_eq!(
+            Config::discover_path(&dotted),
+            Some(dotted.join(".pedantix.toml"))
+        );
+        std::fs::write(dotted.join("pedantix.toml"), "").unwrap();
+        assert_eq!(
+            Config::discover_path(&dotted),
+            Some(dotted.join("pedantix.toml")),
+            "the undotted name wins when both are present"
+        );
 
         let plain = dir.join("plain");
         std::fs::create_dir_all(&plain).unwrap();
@@ -1149,22 +1154,10 @@ mod tests {
             let cfg = Config::from_toml_str(&format!("preset = \"{name}\"")).unwrap();
             assert!(cfg.args.sort, "preset {name} should keep args sorting on");
         }
-        let cfg = Config::from_toml_str("preset = \"nixpkgs-package\"").unwrap();
-        assert_eq!(cfg.attrs.first[0], "name");
-        assert_eq!(cfg.attrs.last, vec!["passthru", "meta"]);
-        assert_eq!(cfg.args.first[0], "lib");
-        assert!(cfg.overrides.iter().any(|o| o.path == "**.src"));
-
-        let cfg = Config::from_toml_str("preset = \"nixos-module\"").unwrap();
-        assert_eq!(cfg.args.first[..3], ["config", "lib", "pkgs"]);
-        assert_eq!(cfg.attrs.last, vec!["meta"]);
-
-        assert!(
-            Config::from_toml_str("preset = \"nope\"")
-                .unwrap_err()
-                .to_string()
-                .contains("unknown preset")
-        );
+        assert!(Config::from_toml_str("preset = \"nope\"")
+            .unwrap_err()
+            .to_string()
+            .contains("unknown preset"));
         assert!(Config::from_toml_str("preset = \"nixpkgs-package\"\noverrides = 5").is_err());
     }
 

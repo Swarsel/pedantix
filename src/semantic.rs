@@ -242,6 +242,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn check_same_content_refuses_a_changed_file() {
+        check_same_content(
+            "{ a = 1; b = 2; }",
+            "{ b = 2; a = 1; }",
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        let err = check_same_content("{ a = 1; }", "{ a = 2; }", false, false, false)
+            .expect_err("changed value must be refused")
+            .to_string();
+        assert!(
+            err.contains("would have changed the file's content"),
+            "{err}"
+        );
+        check_same_content(
+            "{ xs = [ 1 2 ]; }",
+            "{ xs = [ 2 1 ]; }",
+            false,
+            false,
+            false,
+        )
+        .expect_err("list reorder must be refused unless flagged");
+        check_same_content("{ xs = [ 1 2 ]; }", "{ xs = [ 2 1 ]; }", true, false, false).unwrap();
+    }
+
+    #[test]
     fn reordering_is_equal_content_is_not() {
         assert_eq!(
             fingerprint("{ a = 1; b = 2; }").unwrap(),
@@ -278,8 +306,8 @@ mod tests {
     #[test]
     fn formals_and_inherits_are_order_insensitive() {
         assert_eq!(
-            fingerprint("{ a, b, ... }: { inherit (x) c d; }").ok(),
-            fingerprint("{ b, a, ... }: { inherit (x) d c; }").ok()
+            fingerprint("{ a, b, ... }: { inherit (x) c d; }").unwrap(),
+            fingerprint("{ b, a, ... }: { inherit (x) d c; }").unwrap()
         );
     }
 
