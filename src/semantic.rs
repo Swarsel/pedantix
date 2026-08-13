@@ -1,3 +1,4 @@
+use crate::syntax::{binding_components, named_non_comment_children, parse, static_name};
 use anyhow::{Result, bail};
 use std::collections::BTreeMap;
 use tree_sitter::Node;
@@ -24,7 +25,7 @@ pub fn fingerprint_with(
         flatten_attrs,
         unstyled_names,
     };
-    let tree = crate::sort::parse(src)?;
+    let tree = parse(src)?;
     let mut out = String::new();
     canon(tree.root_node(), src, &mut out, opts);
     let mut comments = Vec::new();
@@ -54,13 +55,6 @@ pub fn check_same_content(
         );
     }
     Ok(())
-}
-
-fn named_non_comment_children<'a>(node: Node<'a>) -> Vec<Node<'a>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .filter(|c| c.kind() != "comment")
-        .collect()
 }
 
 fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
@@ -129,24 +123,6 @@ fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
     out.push(')');
 }
 
-fn static_name(node: Node, src: &str) -> Option<String> {
-    let raw = &src[node.start_byte()..node.end_byte()];
-    match node.kind() {
-        "identifier" => Some(raw.to_string()),
-        "string_expression" => {
-            let mut cursor = node.walk();
-            if node
-                .children(&mut cursor)
-                .any(|c| c.kind() == "interpolation")
-            {
-                return None;
-            }
-            Some(raw.strip_prefix('"')?.strip_suffix('"')?.to_string())
-        }
-        _ => None,
-    }
-}
-
 #[derive(Default)]
 struct Entry {
     values: Vec<String>,
@@ -158,7 +134,7 @@ fn set_entry(binding_set: Node, src: &str, opts: Opts) -> Entry {
     let mut entry = Entry::default();
     for child in named_non_comment_children(binding_set) {
         if child.kind() == "binding" {
-            let comps = crate::sort::binding_components(child, src);
+            let comps = binding_components(child, src);
             if let Some(value) = child.child_by_field_name("expression") {
                 add(&mut entry, &comps, value, src, opts);
             }

@@ -1,6 +1,8 @@
 use crate::config::{Config, NameStyle, RuleKind};
-use crate::sort::{descend_binding, normalize_key, parse, splice_children_with, text};
-use anyhow::{Result, bail};
+use crate::syntax::{
+    descend_binding, normalize_key, rewrite_source, splice_children_with, text, unquote,
+};
+use anyhow::Result;
 use tree_sitter::Node;
 
 const KEYWORDS: &[&str] = &[
@@ -17,13 +19,9 @@ pub fn is_identifier(s: &str) -> bool {
 }
 
 pub fn restyle_source(src: &str, cfg: &Config) -> Result<String> {
-    let tree = parse(src)?;
-    let root = tree.root_node();
-    if root.has_error() {
-        bail!("input is not valid Nix (parse error); refusing to restyle names");
-    }
-    let mut path: Vec<String> = Vec::new();
-    Ok(rewrite(root, src, &mut path, cfg).unwrap_or_else(|| src.to_string()))
+    rewrite_source(src, "restyle names", |node, path| {
+        rewrite(node, src, path, cfg)
+    })
 }
 
 fn rewrite(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
@@ -84,7 +82,7 @@ fn restyle(node: Node, src: &str, style: NameStyle) -> Option<String> {
             if node.kind() != "string_expression" {
                 return None;
             }
-            let inner = raw.strip_prefix('"')?.strip_suffix('"')?;
+            let inner = unquote(raw)?;
             is_identifier(inner).then(|| inner.to_string())
         }
         NameStyle::String => {

@@ -1,29 +1,14 @@
 use crate::config::{Config, DEFAULTED_TOKEN, InheritPlacement, RuleKind, SortRules};
-use anyhow::{Result, anyhow, bail};
-use tree_sitter::{Node, Parser};
-
-pub fn parse(src: &str) -> Result<tree_sitter::Tree> {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_nix::LANGUAGE.into())
-        .expect("tree-sitter-nix language is compatible");
-    parser
-        .parse(src, None)
-        .ok_or_else(|| anyhow!("tree-sitter failed to parse input"))
-}
+use crate::syntax::{
+    Item, binding_components, collect_items, container_region, descend_binding, inherit_names,
+    is_multiline, item_sep, line_indent_of, normalize_key, normalize_name, render_item_with,
+    rewrite_source, splice_children_with, splice_region, text,
+};
+use anyhow::Result;
+use tree_sitter::Node;
 
 pub fn sort_source(src: &str, cfg: &Config) -> Result<String> {
-    let tree = parse(src)?;
-    let root = tree.root_node();
-    if root.has_error() {
-        bail!("input is not valid Nix (parse error); refusing to reorder");
-    }
-    let mut path: Vec<String> = Vec::new();
-    Ok(rewrite(root, src, &mut path, cfg).unwrap_or_else(|| src.to_string()))
-}
-
-pub(crate) fn text<'a>(node: Node, src: &'a str) -> &'a str {
-    &src[node.start_byte()..node.end_byte()]
+    rewrite_source(src, "reorder", |node, path| rewrite(node, src, path, cfg))
 }
 
 fn rewrite(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
@@ -44,80 +29,6 @@ fn rewrite(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Optio
 
 fn splice_children(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
     splice_children_with(node, src, |child| rewrite(child, src, path, cfg))
-}
-
-pub(crate) fn splice_children_with<F>(node: Node, src: &str, mut rewrite_child: F) -> Option<String>
-where
-    F: FnMut(Node) -> Option<String>,
-{
-    let mut cursor = node.walk();
-    let mut out = String::new();
-    let mut pos = node.start_byte();
-    let mut changed = false;
-    for child in node.children(&mut cursor) {
-        if let Some(new_text) = rewrite_child(child) {
-            out.push_str(&src[pos..child.start_byte()]);
-            out.push_str(&new_text);
-            pos = child.end_byte();
-            changed = true;
-        }
-    }
-    if !changed {
-        return None;
-    }
-    out.push_str(&src[pos..node.end_byte()]);
-    Some(out)
-}
-
-pub(crate) fn descend_binding<F>(
-    node: Node,
-    src: &str,
-    path: &mut Vec<String>,
-    mut rewrite_child: F,
-) -> Option<String>
-where
-    F: FnMut(Node, &mut Vec<String>) -> Option<String>,
-{
-    let expr_id = node.child_by_field_name("expression").map(|n| n.id());
-    let comps = binding_components(node, src);
-    splice_children_with(node, src, |child| {
-        if Some(child.id()) == expr_id {
-            let depth = path.len();
-            path.extend(comps.iter().cloned());
-            let result = rewrite_child(child, path);
-            path.truncate(depth);
-            result
-        } else {
-            rewrite_child(child, path)
-        }
-    })
-}
-
-pub(crate) fn binding_components(binding: Node, src: &str) -> Vec<String> {
-    binding
-        .child_by_field_name("attrpath")
-        .map(|ap| attrpath_components(ap, src))
-        .unwrap_or_default()
-}
-
-fn attrpath_components(attrpath: Node, src: &str) -> Vec<String> {
-    let mut cursor = attrpath.walk();
-    attrpath
-        .named_children(&mut cursor)
-        .filter(|c| c.kind() != "comment")
-        .map(|c| normalize_key(c, src))
-        .collect()
-}
-
-pub(crate) fn normalize_key(node: Node, src: &str) -> String {
-    let raw = text(node, src);
-    if node.kind() == "string_expression" {
-        let inner = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"'));
-        if let Some(inner) = inner {
-            return inner.to_string();
-        }
-    }
-    raw.to_string()
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -156,108 +67,6 @@ fn ranked_key(name: &str, full_key: Vec<String>, rules: &SortRules) -> SortKey {
     }
 }
 
-pub(crate) struct Item<'a, K = SortKey> {
-    pub(crate) leading: Vec<Node<'a>>,
-    pub(crate) node: Node<'a>,
-    pub(crate) trailing: Option<Node<'a>>,
-    pub(crate) key: K,
-}
-
-pub(crate) fn collect_items<'a, K, F>(
-    children: Vec<Node<'a>>,
-    mut make_key: F,
-) -> (Vec<Item<'a, K>>, Vec<Node<'a>>)
-where
-    F: FnMut(Node<'a>) -> K,
-{
-    let mut items: Vec<Item<'a, K>> = Vec::new();
-    let mut pending: Vec<Node<'a>> = Vec::new();
-    for child in children {
-        if child.kind() == "comment" {
-            match items.last_mut() {
-                Some(last)
-                    if last.trailing.is_none()
-                        && pending.is_empty()
-                        && child.start_position().row == last.node.end_position().row =>
-                {
-                    last.trailing = Some(child);
-                }
-                _ => pending.push(child),
-            }
-        } else {
-            items.push(Item {
-                leading: std::mem::take(&mut pending),
-                node: child,
-                key: make_key(child),
-                trailing: None,
-            });
-        }
-    }
-    (items, pending)
-}
-
-fn line_start_of(node: Node, src: &str) -> usize {
-    src[..node.start_byte()]
-        .rfind('\n')
-        .map(|i| i + 1)
-        .unwrap_or(0)
-}
-
-pub(crate) fn indent_of(node: Node, src: &str) -> String {
-    let prefix = &src[line_start_of(node, src)..node.start_byte()];
-    if prefix.chars().all(|c| c == ' ' || c == '\t') {
-        prefix.to_string()
-    } else {
-        " ".repeat(node.start_position().column)
-    }
-}
-
-fn line_indent_of(node: Node, src: &str) -> String {
-    src[line_start_of(node, src)..]
-        .chars()
-        .take_while(|&c| c == ' ' || c == '\t')
-        .collect()
-}
-
-pub(crate) fn is_multiline(node: Node) -> bool {
-    node.start_position().row != node.end_position().row
-}
-
-pub(crate) fn item_sep<K>(items: &[Item<K>], src: &str, single_line: bool) -> String {
-    if single_line {
-        " ".to_string()
-    } else {
-        format!("\n{}", indent_of(items[0].node, src))
-    }
-}
-
-pub(crate) fn render_item_with<K, F>(
-    item: &Item<K>,
-    src: &str,
-    sep: &str,
-    suffix: &str,
-    mut rewrite_node: F,
-) -> String
-where
-    F: FnMut(Node) -> Option<String>,
-{
-    let mut out = String::new();
-    for c in &item.leading {
-        out.push_str(text(*c, src));
-        out.push_str(sep);
-    }
-    match rewrite_node(item.node) {
-        Some(new_text) => out.push_str(&new_text),
-        None => out.push_str(text(item.node, src)),
-    }
-    out.push_str(suffix);
-    if let Some(tr) = item.trailing {
-        out.push(' ');
-        out.push_str(text(tr, src));
-    }
-    out
-}
-
 fn render_item<K>(
     item: &Item<K>,
     src: &str,
@@ -269,7 +78,7 @@ fn render_item<K>(
     render_item_with(item, src, sep, suffix, |node| rewrite(node, src, path, cfg))
 }
 
-fn changed_order(items: &[Item]) -> Option<Vec<usize>> {
+fn changed_order(items: &[Item<SortKey>]) -> Option<Vec<usize>> {
     let mut order: Vec<usize> = (0..items.len()).collect();
     order.sort_by(|&a, &b| items[a].key.cmp(&items[b].key));
     order
@@ -285,70 +94,6 @@ fn has_comments<K>(items: &[Item<K>], dangling: &[Node]) -> bool {
         || items
             .iter()
             .any(|i| !i.leading.is_empty() || i.trailing.is_some())
-}
-
-pub(crate) fn container_region(node: Node) -> Option<(Vec<Node>, usize, usize)> {
-    let mut cursor = node.walk();
-    let children: Vec<Node> = node.children(&mut cursor).collect();
-    let bs_idx = children.iter().position(|c| c.kind() == "binding_set")?;
-    let mut start_idx = bs_idx;
-    while start_idx > 0 && children[start_idx - 1].kind() == "comment" {
-        start_idx -= 1;
-    }
-    let mut end_idx = bs_idx;
-    while end_idx + 1 < children.len() && children[end_idx + 1].kind() == "comment" {
-        end_idx += 1;
-    }
-    let mut flat: Vec<Node> = Vec::new();
-    for (i, child) in children.iter().enumerate() {
-        if i < start_idx || i > end_idx {
-            continue;
-        }
-        if i == bs_idx {
-            let mut bs_cursor = child.walk();
-            flat.extend(child.children(&mut bs_cursor));
-        } else {
-            flat.push(*child);
-        }
-    }
-    Some((
-        flat,
-        children[start_idx].start_byte(),
-        children[end_idx].end_byte(),
-    ))
-}
-
-pub(crate) fn splice_region<F>(
-    node: Node,
-    src: &str,
-    region_start: usize,
-    region_end: usize,
-    region_text: &str,
-    mut rewrite_child: F,
-) -> String
-where
-    F: FnMut(Node) -> Option<String>,
-{
-    let mut cursor = node.walk();
-    let mut out = String::new();
-    let mut pos = node.start_byte();
-    for child in node.children(&mut cursor) {
-        if child.start_byte() >= region_start && child.end_byte() <= region_end {
-            if child.start_byte() == region_start {
-                out.push_str(&src[pos..region_start]);
-                out.push_str(region_text);
-                pos = region_end;
-            }
-            continue;
-        }
-        if let Some(new_text) = rewrite_child(child) {
-            out.push_str(&src[pos..child.start_byte()]);
-            out.push_str(&new_text);
-            pos = child.end_byte();
-        }
-    }
-    out.push_str(&src[pos..node.end_byte()]);
-    out
 }
 
 fn sort_container(
@@ -435,25 +180,12 @@ fn sort_bindings(
     Some(blocks.join(&sep))
 }
 
-pub(crate) fn inherit_names(node: Node, src: &str) -> Vec<String> {
-    node.child_by_field_name("attrs")
-        .map(|attrs| {
-            let mut cursor = attrs.walk();
-            attrs
-                .named_children(&mut cursor)
-                .filter(|c| c.kind() != "comment")
-                .map(|c| normalize_key(c, src))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn render_sorted(
     node: Node,
     src: &str,
     path: &mut Vec<String>,
     cfg: &Config,
-    collected: (Vec<Item>, Vec<Node>),
+    collected: (Vec<Item<SortKey>>, Vec<Node>),
     delimiters: (char, char),
     comma: bool,
 ) -> Option<String> {
@@ -465,13 +197,13 @@ fn render_sorted(
 fn render_sorted_with<F>(
     node: Node,
     src: &str,
-    (items, dangling): (Vec<Item>, Vec<Node>),
+    (items, dangling): (Vec<Item<SortKey>>, Vec<Node>),
     (open, close): (char, char),
     comma: bool,
     mut render: F,
 ) -> Option<String>
 where
-    F: FnMut(&Item, &str, &str) -> String,
+    F: FnMut(&Item<SortKey>, &str, &str) -> String,
 {
     let order = changed_order(&items)?;
     let single_line = !is_multiline(node) && !has_comments(&items, &dangling);
@@ -581,7 +313,7 @@ fn sort_list(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Opt
     let collected = collect_items(children, |child| {
         let key = match rewrite(child, src, path, cfg) {
             Some(text) => {
-                let key = normalize_rewritten_key(child, &text);
+                let key = normalize_name(child, &text);
                 rewritten.push((child.id(), text));
                 key
             }
@@ -598,17 +330,6 @@ fn sort_list(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Opt
         })
     })
     .or_else(|| splice_children(node, src, path, cfg))
-}
-
-fn normalize_rewritten_key(node: Node, rewritten: &str) -> String {
-    if node.kind() == "string_expression"
-        && let Some(inner) = rewritten
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-    {
-        return inner.to_string();
-    }
-    rewritten.to_string()
 }
 
 fn sort_inherited_attrs(

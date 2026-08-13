@@ -337,14 +337,7 @@ fn expand_preset(mut table: toml::Table) -> Result<toml::Table> {
             )
         })?;
     let preset: toml::Table = preset_text.parse().expect("embedded preset is valid TOML");
-    let preset_overrides = preset.get("overrides").and_then(|v| v.as_array()).cloned();
-    let user_overrides = table.get("overrides").and_then(|v| v.as_array()).cloned();
-    let mut merged = merge_tables(preset, table);
-    if let (Some(mut combined), Some(user)) = (preset_overrides, user_overrides) {
-        combined.extend(user);
-        merged.insert("overrides".into(), toml::Value::Array(combined));
-    }
-    Ok(merged)
+    Ok(merge_tables_concat_overrides(preset, table))
 }
 
 fn expand_files(mut table: toml::Table, file: Option<&str>) -> Result<toml::Table> {
@@ -388,13 +381,7 @@ fn expand_files(mut table: toml::Table, file: Option<&str>) -> Result<toml::Tabl
         if has_preset {
             table.remove("preset");
         }
-        let base_overrides = table.get("overrides").and_then(|v| v.as_array()).cloned();
-        let entry_overrides = entry.get("overrides").and_then(|v| v.as_array()).cloned();
-        table = merge_tables(table, entry);
-        if let (Some(mut combined), Some(from_entry)) = (base_overrides, entry_overrides) {
-            combined.extend(from_entry);
-            table.insert("overrides".into(), toml::Value::Array(combined));
-        }
+        table = merge_tables_concat_overrides(table, entry);
     }
     Ok(table)
 }
@@ -411,6 +398,17 @@ pub fn sets_formatter_command(table: &toml::Table) -> bool {
                         .is_some_and(|t| t.contains_key("formatter-command"))
                 })
             })
+}
+
+fn merge_tables_concat_overrides(base: toml::Table, over: toml::Table) -> toml::Table {
+    let base_overrides = base.get("overrides").and_then(|v| v.as_array()).cloned();
+    let over_overrides = over.get("overrides").and_then(|v| v.as_array()).cloned();
+    let mut merged = merge_tables(base, over);
+    if let (Some(mut combined), Some(rest)) = (base_overrides, over_overrides) {
+        combined.extend(rest);
+        merged.insert("overrides".into(), toml::Value::Array(combined));
+    }
+    merged
 }
 
 fn merge_tables(base: toml::Table, over: toml::Table) -> toml::Table {
@@ -711,19 +709,20 @@ fn glob_match_file(pattern: &str, path: &str) -> bool {
         None => ["**"].into_iter().chain(pattern.split('/')).collect(),
     };
     let path: Vec<&str> = path.split('/').collect();
-    file_glob(&pat, &path)
+    glob(&pat, &path, |p, c| {
+        component_match(p.as_bytes(), c.as_bytes())
+    })
 }
 
-fn file_glob(pat: &[&str], path: &[&str]) -> bool {
+fn glob(pat: &[&str], path: &[&str], component: fn(&str, &str) -> bool) -> bool {
     match pat.first() {
         None => path.is_empty(),
         Some(&"**") => {
-            file_glob(&pat[1..], path) || (!path.is_empty() && file_glob(pat, &path[1..]))
+            glob(&pat[1..], path, component)
+                || (!path.is_empty() && glob(pat, &path[1..], component))
         }
         Some(&p) => match path.first() {
-            Some(&c) if component_match(p.as_bytes(), c.as_bytes()) => {
-                file_glob(&pat[1..], &path[1..])
-            }
+            Some(&c) if component(p, c) => glob(&pat[1..], &path[1..], component),
             _ => false,
         },
     }
@@ -743,20 +742,7 @@ fn component_match(pat: &[u8], text: &[u8]) -> bool {
 fn glob_match_path(pattern: &str, path: &[String]) -> bool {
     let pat: Vec<&str> = pattern.split('.').collect();
     let path: Vec<&str> = path.iter().map(|s| s.as_str()).collect();
-    glob_match(&pat, &path)
-}
-
-fn glob_match(pat: &[&str], path: &[&str]) -> bool {
-    match pat.first() {
-        None => path.is_empty(),
-        Some(&"**") => {
-            glob_match(&pat[1..], path) || (!path.is_empty() && glob_match(pat, &path[1..]))
-        }
-        Some(&p) => match path.first() {
-            Some(&c) if p == "*" || p == c => glob_match(&pat[1..], &path[1..]),
-            _ => false,
-        },
-    }
+    glob(&pat, &path, |p, c| p == "*" || p == c)
 }
 
 #[cfg(test)]

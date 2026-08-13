@@ -1,17 +1,15 @@
 use crate::config::{BlankLinesMode, Config, RuleKind};
-use crate::sort::{binding_components, collect_items, container_region, is_multiline, parse};
-use anyhow::{Result, bail};
+use crate::syntax::{
+    binding_components, collect_items, container_region, descend_binding, is_multiline, parse_valid,
+};
+use anyhow::Result;
 use tree_sitter::Node;
 
 pub fn space_top_level(src: &str, cfg: &Config, is_flake: bool) -> Result<String> {
     if !cfg.blank_lines_may_apply() {
         return Ok(src.to_string());
     }
-    let tree = parse(src)?;
-    let root = tree.root_node();
-    if root.has_error() {
-        bail!("input is not valid Nix (parse error); refusing to adjust spacing");
-    }
+    let tree = parse_valid(src, "adjust spacing")?;
     let mut spacer = Spacer {
         src,
         cfg,
@@ -19,7 +17,7 @@ pub fn space_top_level(src: &str, cfg: &Config, is_flake: bool) -> Result<String
         edits: Vec::new(),
     };
     let mut path: Vec<String> = Vec::new();
-    spacer.walk(root, &mut path, Some(1), None);
+    spacer.walk(tree.root_node(), &mut path, Some(1), None);
     spacer.edits.sort_by_key(|&(start, _, _)| start);
     let mut out = String::new();
     let mut pos = 0;
@@ -94,18 +92,14 @@ impl Spacer<'_> {
         inherited: Option<Inherited>,
     ) {
         let expr_id = node.child_by_field_name("expression").map(|e| e.id());
-        let comps = binding_components(node, self.src);
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
+        descend_binding(node, self.src, path, |child, path| {
             if Some(child.id()) == expr_id {
-                let depth = path.len();
-                path.extend(comps.iter().cloned());
                 self.walk(child, path, root, inherited);
-                path.truncate(depth);
             } else {
                 self.walk(child, path, None, None);
             }
-        }
+            None
+        });
     }
 
     fn space_container(
