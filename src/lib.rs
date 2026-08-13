@@ -7,3 +7,4 @@ pub mod pipeline;
 pub mod semantic;
 pub mod sort;
 pub mod spacing;
+pub mod syntax;

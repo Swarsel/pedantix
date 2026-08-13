@@ -1,22 +1,19 @@
 use crate::config::{Config, RuleKind};
-use crate::sort::{
+use crate::syntax::{
     Item, binding_components, collect_items, container_region, descend_binding, inherit_names,
-    item_sep, normalize_key, parse, render_item_with, splice_children_with, splice_region, text,
+    item_sep, normalize_key, parse_valid, render_item_with, splice_children_with, splice_region,
+    static_name, text,
 };
-use anyhow::{Result, bail};
+use anyhow::Result;
 use std::collections::{BTreeMap, HashSet};
 use tree_sitter::Node;
 
 pub fn merge_source(src: &str, cfg: &Config) -> Result<String> {
     let mut current = src.to_string();
     loop {
-        let tree = parse(&current)?;
-        let root = tree.root_node();
-        if root.has_error() {
-            bail!("input is not valid Nix (parse error); refusing to merge");
-        }
+        let tree = parse_valid(&current, "merge")?;
         let mut path: Vec<String> = Vec::new();
-        match rewrite(root, &current, &mut path, cfg) {
+        match rewrite(tree.root_node(), &current, &mut path, cfg) {
             Some(next) => current = next,
             None => return Ok(current),
         }
@@ -61,7 +58,7 @@ fn flatten_binding(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) 
         return None;
     }
     let inner_comps = attrpath_comp_nodes(*inner)?;
-    if !inner_comps.iter().all(|c| is_static_head(*c)) {
+    if !inner_comps.iter().all(|c| static_name(*c, src).is_some()) {
         return None;
     }
     let depth = path.len();
@@ -89,20 +86,6 @@ fn attrpath_comp_nodes<'a>(binding: Node<'a>) -> Option<Vec<Node<'a>>> {
     Some(comps)
 }
 
-fn is_static_head(node: Node) -> bool {
-    match node.kind() {
-        "identifier" => true,
-        "string_expression" => {
-            let mut cursor = node.walk();
-            let dynamic = node
-                .children(&mut cursor)
-                .any(|c| c.kind() == "interpolation");
-            !dynamic
-        }
-        _ => false,
-    }
-}
-
 fn merge_container(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) -> Option<String> {
     let rules = cfg.rules_at(RuleKind::Attrs, path);
     if !rules.merge {
@@ -119,11 +102,8 @@ fn merge_container(node: Node, src: &str, path: &mut Vec<String>, cfg: &Config) 
         match item.node.kind() {
             "binding" => match attrpath_comp_nodes(item.node) {
                 Some(comps) if comps.len() >= 2 => {
-                    if is_static_head(comps[0]) {
-                        heads
-                            .entry(normalize_key(comps[0], src))
-                            .or_default()
-                            .push(idx);
+                    if let Some(head) = static_name(comps[0], src) {
+                        heads.entry(head).or_default().push(idx);
                     }
                 }
                 Some(comps) => {
@@ -341,7 +321,7 @@ mod tests {
             out,
             "{\n  a/*x*/.b = 1;\n  a = {\n    c = 2;\n    d = 3;\n  };\n}\n"
         );
-        assert!(!crate::sort::parse(&out).unwrap().root_node().has_error());
+        assert!(!crate::syntax::parse(&out).unwrap().root_node().has_error());
 
         let src = "{\n  a/*x*/ = 1;\n  a.b = 2;\n  a.c = 3;\n}\n";
         assert_eq!(merged(src, &config), src);
@@ -351,7 +331,7 @@ mod tests {
     fn single_line_input_stays_valid() {
         let config = cfg("[attrs]\nmerge = true\n");
         let out = merged("{ a.b = 1; a.c = 2; }\n", &config);
-        assert!(!crate::sort::parse(&out).unwrap().root_node().has_error());
+        assert!(!crate::syntax::parse(&out).unwrap().root_node().has_error());
         assert!(out.contains("a = {"));
     }
 
@@ -396,7 +376,7 @@ mod tests {
         ] {
             let out = merged(src, &config);
             assert_eq!(out, want, "input: {src}");
-            assert!(!crate::sort::parse(&out).unwrap().root_node().has_error());
+            assert!(!crate::syntax::parse(&out).unwrap().root_node().has_error());
         }
     }
 
