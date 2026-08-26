@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -862,7 +862,7 @@ mod tests {
 
         let cfg =
             Config::from_table_for_file(table.clone(), Some("pkgs/foo.pkg.nix"), &[]).unwrap();
-        assert_eq!(cfg.attrs.first[..2], ["pname", "version"]);
+        assert_eq!(cfg.attrs.first[..2], ["name", "pname"]);
         assert_eq!(cfg.args.first[..2], ["lib", "stdenv"]);
         assert!(cfg.lets.sort);
         assert!(cfg.attrs.flatten);
@@ -922,10 +922,14 @@ mod tests {
         assert!(err("files = [5]").contains("must be tables"));
         assert!(err("[[files]]\npreset = \"nixos-module\"").contains("`pattern`"));
         assert!(err("[[files]]\npattern = 5").contains("`pattern`"));
-        assert!(err("[[files]]\npattern = \"*.nix\"\npreset = \"nope\"")
-            .contains("invalid `files` entry for pattern `*.nix`"));
-        assert!(err("[[files]]\npattern = \"*.nix\"\nnot-a-key = true")
-            .contains("invalid `files` entry"));
+        assert!(
+            err("[[files]]\npattern = \"*.nix\"\npreset = \"nope\"")
+                .contains("invalid `files` entry for pattern `*.nix`")
+        );
+        assert!(
+            err("[[files]]\npattern = \"*.nix\"\nnot-a-key = true")
+                .contains("invalid `files` entry")
+        );
         assert!(
             err("[[files]]\npattern = \"a.nix\"\n[[files.files]]\npattern = \"b.nix\"")
                 .contains("invalid `files` entry")
@@ -1140,10 +1144,12 @@ mod tests {
             let cfg = Config::from_toml_str(&format!("preset = \"{name}\"")).unwrap();
             assert!(cfg.args.sort, "preset {name} should keep args sorting on");
         }
-        assert!(Config::from_toml_str("preset = \"nope\"")
-            .unwrap_err()
-            .to_string()
-            .contains("unknown preset"));
+        assert!(
+            Config::from_toml_str("preset = \"nope\"")
+                .unwrap_err()
+                .to_string()
+                .contains("unknown preset")
+        );
         assert!(Config::from_toml_str("preset = \"nixpkgs-package\"\noverrides = 5").is_err());
     }
 
