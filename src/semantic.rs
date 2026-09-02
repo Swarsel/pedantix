@@ -58,6 +58,10 @@ pub fn check_same_content(
 }
 
 fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
+    if node.kind() == "indented_string_expression" {
+        canon_indented_string(node, src, out, opts);
+        return;
+    }
     if opts.unstyled_names && matches!(node.kind(), "attrpath" | "inherited_attrs") {
         out.push('(');
         out.push_str(node.kind());
@@ -121,6 +125,53 @@ fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
         }
     }
     out.push(')');
+}
+
+fn canon_indented_string(node: Node, src: &str, out: &mut String, opts: Opts) {
+    const PLACEHOLDER: char = '\u{0}';
+    let mut template = String::new();
+    let mut interpolations = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "string_fragment" | "escape_sequence" => {
+                template.push_str(&src[child.start_byte()..child.end_byte()]);
+            }
+            "interpolation" => {
+                template.push(PLACEHOLDER);
+                let mut s = String::new();
+                canon(child, src, &mut s, opts);
+                interpolations.push(s);
+            }
+            _ => {}
+        }
+    }
+    out.push_str("(indented_string ");
+    out.push_str(&strip_common_indent(&template));
+    for i in interpolations {
+        out.push_str("(interp ");
+        out.push_str(&i);
+        out.push(')');
+    }
+    out.push(')');
+}
+
+fn strip_common_indent(s: &str) -> String {
+    let leading_spaces = |line: &str| line.chars().take_while(|&c| c == ' ').count();
+    let mut lines = s.split('\n');
+    let mut out = lines.next().unwrap_or("").to_string();
+    let rest: Vec<&str> = lines.collect();
+    let min = rest
+        .iter()
+        .filter(|line| line.chars().any(|c| c != ' '))
+        .map(|line| leading_spaces(line))
+        .min()
+        .unwrap_or(0);
+    for line in rest {
+        out.push('\n');
+        out.push_str(&line[leading_spaces(line).min(min)..]);
+    }
+    out
 }
 
 #[derive(Default)]
@@ -320,6 +371,22 @@ mod tests {
         assert_ne!(
             fingerprint_with("{ a = { }; }", false, true, false).unwrap(),
             fingerprint_with("{ }", false, true, false).unwrap()
+        );
+    }
+
+    #[test]
+    fn indented_string_reindentation_is_equal_content_is_not() {
+        assert_eq!(
+            fingerprint("{ a = ''\n      foo\n    '';\n}").unwrap(),
+            fingerprint("{ a = ''\n    foo\n  '';\n}").unwrap()
+        );
+        assert_ne!(
+            fingerprint("''\n  foo\n    bar\n''").unwrap(),
+            fingerprint("''\n  foo\n  bar\n''").unwrap()
+        );
+        assert_ne!(
+            fingerprint("''\n  foo\n    \n''").unwrap(),
+            fingerprint("''\n  foo\n  \n''").unwrap()
         );
     }
 

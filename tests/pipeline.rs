@@ -104,6 +104,22 @@ fn merge_through_the_full_pipeline() {
 }
 
 #[test]
+fn reindented_multiline_strings_pass_the_content_check() {
+    if !have("nixfmt") {
+        eprintln!("skipping: nixfmt not on PATH");
+        return;
+    }
+    // Regression for issue #18: nixfmt dedents the let body, shifting the ''
+    // string's indentation; the content check must not read that as a change.
+    let src = "{pkgs, ...}: let\n  x = 1;\nin\n  pkgs.mkShell {\n    shellHook = ''\n      ${toString x}\n\n      # a comment inside a string\n      export FOO=bar\n    '';\n  }\n";
+    let cfg: Config = toml::from_str("[attrs]\nflatten = true\nmerge = true\n").unwrap();
+    for cfg in [Config::default(), cfg] {
+        let out = process(src, &cfg).unwrap();
+        assert_eq!(out, process(&out, &cfg).unwrap(), "not idempotent");
+    }
+}
+
+#[test]
 fn flatten_through_the_full_pipeline() {
     if !have("nixfmt") {
         eprintln!("skipping: nixfmt not on PATH");
