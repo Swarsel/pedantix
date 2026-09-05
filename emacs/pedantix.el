@@ -1,7 +1,7 @@
 ;;; pedantix.el --- Format Nix buffers with pedantix  -*- lexical-binding: t; -*-
 
 ;; Author: Leon Schwarzäugl
-;; Version: 1.2.1
+;; Version: 1.2.2
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: languages, tools, nix
 ;; URL: https://github.com/swarsel/pedantix

@@ -96,7 +96,7 @@ fn canon(node: Node, src: &str, out: &mut String, opts: Opts) {
         || (opts.unordered_lists && node.kind() == "list_expression");
     out.push('(');
     out.push_str(node.kind());
-    if children.is_empty() {
+    if node.child_count() == 0 {
         out.push(' ');
         out.push_str(&src[node.start_byte()..node.end_byte()]);
     } else if order_insensitive {
@@ -310,6 +310,20 @@ mod tests {
             fingerprint("{ a = 1; # hi\n}").unwrap(),
             fingerprint("{ a = 1; }").unwrap()
         );
+    }
+
+    #[test]
+    fn empty_collections_ignore_interior_whitespace() {
+        assert_eq!(
+            fingerprint("{ p = x or {}; }").unwrap(),
+            fingerprint("{ p = x or { }; }").unwrap()
+        );
+        assert_eq!(fingerprint("[]").unwrap(), fingerprint("[ ]").unwrap());
+        assert_eq!(
+            fingerprint("{}: rec {}").unwrap(),
+            fingerprint("{ }: rec { }").unwrap()
+        );
+        assert_ne!(fingerprint("{ }").unwrap(), fingerprint("[ ]").unwrap());
     }
 
     #[test]

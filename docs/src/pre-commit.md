@@ -73,7 +73,7 @@ Use the standalone module directly:
 ```yaml
 repos:
 - repo: https://github.com/swarsel/pedantix
-  rev: v1.2.1
+  rev: v1.2.2
   hooks:
   - id: pedantix
 ```
