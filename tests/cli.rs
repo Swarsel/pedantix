@@ -453,3 +453,34 @@ fn invalid_nix_exits_2() {
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("not valid Nix"));
 }
+
+#[test]
+fn on_parse_error_skip_only_runs_base_formatter() {
+    let pipe = "{ b = [ 1 2 ] |> f; a = 1; }\n";
+    let out = pedantix(&["--config-toml", OFF], Some(pipe));
+    assert_eq!(out.status.code(), Some(2));
+
+    let skip = "formatter = \"off\"\non-parse-error = \"skip\"";
+    let out = pedantix(&["--config-toml", skip], Some(pipe));
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), pipe);
+    assert!(stderr(&out).contains("<stdin>: cannot parse"));
+
+    let upcase = r#"on-parse-error = "skip"
+formatter-command = ["tr", "a-z", "A-Z"]
+format-before-sort = false"#;
+    let out = pedantix(&["--config-toml", upcase], Some(pipe));
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), pipe.to_uppercase());
+
+    let dir = temp_dir("on-parse-error");
+    let file = dir.join("pipe.nix");
+    std::fs::write(&file, pipe).unwrap();
+    let out = pedantix(
+        &["--config-toml", skip, "--check", file.to_str().unwrap()],
+        None,
+    );
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("pipe.nix: cannot parse"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

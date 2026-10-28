@@ -37,6 +37,7 @@ fn main() {
         "BlankLinesMode",
         "InheritPlacement",
         "NameStyle",
+        "ParseErrorAction",
     ] {
         render_enum(name, &defs[name]);
     }

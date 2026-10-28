@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, ParseErrorAction};
 use anyhow::{Context, Result};
 use std::borrow::Cow;
 use std::path::Path;
@@ -13,6 +13,16 @@ pub fn process_file(input: &str, cfg: &Config, path: Option<&Path>) -> Result<St
     } else {
         input.to_string()
     };
+    if cfg.on_parse_error == ParseErrorAction::Skip
+        && crate::syntax::parse(&formatted)?.root_node().has_error()
+    {
+        let name = path.map_or(Cow::Borrowed("<stdin>"), |p| p.to_string_lossy());
+        eprintln!("pedantix: warning: {name}: cannot parse; skipping reordering");
+        if cfg.format_before_sort || !cfg.format_after_sort {
+            return Ok(formatted);
+        }
+        return crate::base::run_base_formatter(cfg, &formatted).context("base formatter");
+    }
     let restructures = cfg.attrs_may_merge() || cfg.attrs_may_flatten();
     let restyles = cfg.names_may_restyle();
     let restyled = if restyles {

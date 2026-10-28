@@ -23,7 +23,7 @@ A config that specifies a `formatter-command` (an arbitrary `stdin → stdout` p
 |------|---------|
 | `0` | Success — files were formatted, or nothing needed reformatting when using `--check`. |
 | `1` | With `--check`: at least one file would be reformatted. |
-| `2` | Bad configuration, unreadable file, parse failure, etc. |
+| `2` | Bad configuration, unreadable file, parse failure (unless `on-parse-error = "skip"`), etc. |
 
 ## Examples
 

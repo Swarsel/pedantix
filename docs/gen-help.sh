@@ -53,7 +53,7 @@ emit presets.md run_example gen-presets-docs
 # the flake being committed.
 build_options() {
   local attr="$1"
-  nix-build --no-out-link --expr "
+  nix-build --builders '' --no-out-link --expr "
     let
       pkgs = import <nixpkgs> { };
       docs = import ./nix/options-doc.nix {

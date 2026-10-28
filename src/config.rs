@@ -31,6 +31,11 @@ fn default_name_style_doc() -> &'static str {
     "preserve"
 }
 
+#[cfg(feature = "docs")]
+fn default_on_parse_error_doc() -> &'static str {
+    "fail"
+}
+
 pub const DEFAULTED_TOKEN: &str = "<defaulted>";
 
 /// Base formatter run before and after sorting.
@@ -100,6 +105,18 @@ pub enum InheritPlacement {
     Last,
     /// Sort `inherit lines alphabetically among the bindings.
     Sorted,
+}
+
+/// What to do with a file tree-sitter-nix cannot parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[cfg_attr(feature = "docs", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum ParseErrorAction {
+    /// Refuse the file and exit with code 2.
+    #[default]
+    Fail,
+    /// Only run the base formatter on it and print a warning.
+    Skip,
 }
 
 /// Rules for one sortable construct (`args`, `attrs`, `lets`, `inherits`,
@@ -281,6 +298,10 @@ pub struct Config {
     #[serde(default)]
     #[cfg_attr(feature = "docs", schemars(default = "default_inherit_placement_doc"))]
     pub inherit_placement: InheritPlacement,
+    /// What to do with a file tree-sitter-nix cannot parse.
+    #[serde(default)]
+    #[cfg_attr(feature = "docs", schemars(default = "default_on_parse_error_doc"))]
+    pub on_parse_error: ParseErrorAction,
     /// Rules for function arguments (`{ lib, config, pkgs, ... }`).
     #[serde(default)]
     pub args: SortRules,
