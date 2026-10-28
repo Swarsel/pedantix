@@ -30,11 +30,12 @@ pub fn fingerprint_with(
     canon(tree.root_node(), src, &mut out, opts);
     let mut comments = Vec::new();
     collect_comments(tree.root_node(), src, &mut comments);
-    comments.sort();
+    let mut words: Vec<&str> = comments.into_iter().flat_map(comment_words).collect();
+    words.sort_unstable();
     out.push_str("\n#comments:");
-    for c in comments {
+    for word in words {
         out.push('\n');
-        out.push_str(c.trim_end());
+        out.push_str(word);
     }
     Ok(out)
 }
@@ -253,6 +254,14 @@ fn write_entry(entry: Entry, out: &mut String) {
     out.push(')');
 }
 
+fn comment_words(comment: &str) -> impl Iterator<Item = &str> {
+    let body = match comment.strip_prefix("/*") {
+        Some(rest) => rest.strip_suffix("*/").unwrap_or(rest),
+        None => comment.strip_prefix('#').unwrap_or(comment),
+    };
+    body.split_whitespace().filter(|word| *word != "*")
+}
+
 fn collect_comments<'a>(node: Node<'a>, src: &'a str, out: &mut Vec<&'a str>) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -309,6 +318,33 @@ mod tests {
         assert_ne!(
             fingerprint("{ a = 1; # hi\n}").unwrap(),
             fingerprint("{ a = 1; }").unwrap()
+        );
+    }
+
+    #[test]
+    fn base_formatter_comment_rewrites_are_equal_content() {
+        let same = |a: &str, b: &str| assert_eq!(fingerprint(a).unwrap(), fingerprint(b).unwrap());
+        same(
+            "{\n  a = {\n  /*\n  first line\n  second line\n  */\n    b = 1;\n  };\n}",
+            "{\n  a = {\n    /*\n      first line\n      second line\n    */\n    b = 1;\n  };\n}",
+        );
+        same(
+            "[ \"smth\" #! smth else\n]",
+            "[\n  \"smth\" # ! smth else\n]",
+        );
+        same("{ a = 1; /* x *//* y */ }", "{ a = 1; # x y\n}");
+        same("{ a = 1; /**/ }", "{ a = 1; }");
+        same(
+            "{\n  /**\n   * doc star\n   */\n  a = 1;\n}",
+            "{\n  /**\n    doc star\n  */\n  a = 1;\n}",
+        );
+        assert_ne!(
+            fingerprint("{ a = 1; # x\n}").unwrap(),
+            fingerprint("{ a = 1; # y\n}").unwrap()
+        );
+        assert_ne!(
+            fingerprint("{ a = 1; # x\n}").unwrap(),
+            fingerprint("{ a = 1; # x\n# x\n}").unwrap()
         );
     }
 
